@@ -2,8 +2,6 @@ package oserver
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -123,7 +121,12 @@ func (s *MongoServer) ListClients(ctx context.Context, accountID string) ([]*OAu
 		if err := cur.Decode(&doc); err != nil {
 			return nil, err
 		}
-
+		if ss(doc["client_id"]) == "" {
+			return nil, errors.New("client_id is empty")
+		}
+		if ss(doc["name"]) == "" {
+			return nil, errors.New("name is empty")
+		}
 		list = append(list, &OAuthClient{
 			ClientID:      ss(doc["client_id"]),
 			Name:          ss(doc["name"]),
@@ -217,8 +220,7 @@ func (s *MongoServer) Token(ctx context.Context, req TokenRequest) (*TokenRespon
 		if rec.CodeChallenge != "" {
 			switch rec.CodeChallengeMethod {
 			case "S256":
-				h := sha256.Sum256([]byte(req.CodeVerifier))
-				if base64.RawURLEncoding.EncodeToString(h[:]) != rec.CodeChallenge {
+				if !ValidateCodeChallenge(req.CodeVerifier, rec.CodeChallenge) {
 					return nil, errors.New("invalid code_verifier")
 				}
 			case "plain":
@@ -332,6 +334,10 @@ func (s *MongoServer) Introspect(ctx context.Context, req IntrospectRequest) (*I
 	return &IntrospectResponse{Active: active, ClientID: ss(doc["client_id"]), Scope: ss(doc["scope"]), Exp: expires}, nil
 }
 
+type JWKs struct {
+	Key json.RawMessage `json:"key" bson:"key"`
+}
+
 // JWKs returns stored JWK set
 // JWKs returns stored JWK set
 func (s *MongoServer) JWKs(ctx context.Context) (*JWKSet, error) {
@@ -341,13 +347,11 @@ func (s *MongoServer) JWKs(ctx context.Context) (*JWKSet, error) {
 	}
 	var keys []json.RawMessage
 	for cur.Next(ctx) {
-		var doc bson.M
+		var doc JWKs
 		if err := cur.Decode(&doc); err != nil {
 			return nil, err
 		}
-		if raw, ok := doc["key"].(json.RawMessage); ok {
-			keys = append(keys, raw)
-		}
+		keys = append(keys, doc.Key)
 	}
 	return &JWKSet{Keys: keys}, nil
 }
@@ -414,14 +418,14 @@ func (s *MongoServer) HasAccess(r *http.Request, resource string, hasRbacAccess 
 	err := s.tokensColl.FindOne(ctx, bson.M{"access_token": token}).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
-			return hasRbacAccess(resource, ""), nil
+			return false, nil
 		}
 		return false, err
 	}
 	// check expiration
 	expires, ok := doc["expires_at"].(int64)
 	if !ok || time.Now().Unix() >= expires {
-		return hasRbacAccess(resource, ""), nil
+		return false, nil
 	}
 	// extract user and scopes
 	userId, _ := doc["user_id"].(string)

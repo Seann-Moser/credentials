@@ -396,7 +396,12 @@ func TestMongoServer_Token_AuthorizationCode(t *testing.T) {
 		// Mock responses for FindOne and UpdateOne
 		mt.AddMockResponses(mtest.CreateCursorResponse(1, "foo.bar", mtest.FirstBatch, authRec))
 		mt.AddMockResponses(mtest.CreateSuccessResponse())
-
+		mt.AddMockResponses(
+			mtest.CreateSuccessResponse(
+				bson.E{Key: "n", Value: int64(1)},         // matched count
+				bson.E{Key: "nModified", Value: int64(1)}, // modified count
+			),
+		)
 		req := TokenRequest{
 			GrantType:   string(GrantTypeAuthorizationCode),
 			Code:        code,
@@ -417,8 +422,12 @@ func TestMongoServer_Token_AuthorizationCode(t *testing.T) {
 	mt.Run("success_pkce_s256", func(mt *mtest.T) {
 		server := newTestMongoServer(mt)
 		code := primitive.NewObjectID().Hex()
-		codeVerifier := "dBjftJeZ4CVP-mB92K27uhbUVS6ODl6_uzhXg_rGeRa" // Example verifier
-		sha256Hash := "E9N_a6n0d8X2Y-6F4kS_o5jC4QhP6W-1E5V9C2L0O7Q"   // Base64RawURLEncoding of SHA256(codeVerifier)
+		codeVerifier, err := GenerateCodeVerifier() // Example verifier
+
+		if err != nil {
+			mt.Fatalf("GenerateCodeVerifier failed: %v", err)
+		}
+		sha256Hash := GenerateCodeChallenge(codeVerifier) // Base64RawURLEncoding of SHA256(codeVerifier)
 		authRec := bson.D{
 			{Key: "code", Value: code},
 			{Key: "client_id", Value: "pkce_client"},
@@ -430,7 +439,12 @@ func TestMongoServer_Token_AuthorizationCode(t *testing.T) {
 
 		mt.AddMockResponses(mtest.CreateCursorResponse(1, "foo.bar", mtest.FirstBatch, authRec))
 		mt.AddMockResponses(mtest.CreateSuccessResponse())
-
+		mt.AddMockResponses(
+			mtest.CreateSuccessResponse(
+				bson.E{Key: "n", Value: int64(1)},         // matched count
+				bson.E{Key: "nModified", Value: int64(1)}, // modified count
+			),
+		)
 		req := TokenRequest{
 			GrantType:    string(GrantTypeAuthorizationCode),
 			Code:         code,
@@ -461,6 +475,12 @@ func TestMongoServer_Token_AuthorizationCode(t *testing.T) {
 
 		mt.AddMockResponses(mtest.CreateCursorResponse(1, "foo.bar", mtest.FirstBatch, authRec))
 		mt.AddMockResponses(mtest.CreateSuccessResponse())
+		mt.AddMockResponses(
+			mtest.CreateSuccessResponse(
+				bson.E{Key: "n", Value: int64(1)},         // matched count
+				bson.E{Key: "nModified", Value: int64(1)}, // modified count
+			),
+		)
 
 		req := TokenRequest{
 			GrantType:    string(GrantTypeAuthorizationCode),
@@ -603,6 +623,7 @@ func TestMongoServer_Token_AuthorizationCode(t *testing.T) {
 		}
 		mt.AddMockResponses(mtest.CreateCursorResponse(1, "foo.bar", mtest.FirstBatch, authRec))
 		mt.AddMockResponses(mtest.CreateCommandErrorResponse(mtest.CommandError{Code: 1, Message: "token update error"}))
+		mt.AddMockResponses(mtest.CreateCommandErrorResponse(mtest.CommandError{Code: 1, Message: "token update error"}))
 
 		req := TokenRequest{
 			GrantType:   string(GrantTypeAuthorizationCode),
@@ -634,7 +655,12 @@ func TestMongoServer_Token_RefreshToken(t *testing.T) {
 
 		mt.AddMockResponses(mtest.CreateCursorResponse(1, "foo.bar", mtest.FirstBatch, tokenRec))
 		mt.AddMockResponses(mtest.CreateSuccessResponse())
-
+		mt.AddMockResponses(
+			mtest.CreateSuccessResponse(
+				bson.E{Key: "n", Value: int64(1)},         // matched count
+				bson.E{Key: "nModified", Value: int64(1)}, // modified count
+			),
+		)
 		req := TokenRequest{
 			GrantType:    string(GrantTypeRefreshToken),
 			RefreshToken: refreshToken,
@@ -678,6 +704,7 @@ func TestMongoServer_Token_RefreshToken(t *testing.T) {
 		}
 		mt.AddMockResponses(mtest.CreateCursorResponse(1, "foo.bar", mtest.FirstBatch, tokenRec))
 		mt.AddMockResponses(mtest.CreateCommandErrorResponse(mtest.CommandError{Code: 1, Message: "refresh update error"}))
+		mt.AddMockResponses(mtest.CreateCommandErrorResponse(mtest.CommandError{Code: 1, Message: "refresh update error"}))
 
 		req := TokenRequest{
 			GrantType:    string(GrantTypeRefreshToken),
@@ -708,6 +735,7 @@ func TestMongoServer_Token_ClientCredentials(t *testing.T) {
 		}
 
 		mt.AddMockResponses(mtest.CreateCursorResponse(1, "foo.bar", mtest.FirstBatch, clientDoc)) // For client authentication
+		mt.AddMockResponses(mtest.CreateSuccessResponse())                                         // For token insert
 		mt.AddMockResponses(mtest.CreateSuccessResponse())                                         // For token insert
 
 		req := TokenRequest{
@@ -789,6 +817,7 @@ func TestMongoServer_Token_ClientCredentials(t *testing.T) {
 		}
 
 		mt.AddMockResponses(mtest.CreateCursorResponse(1, "foo.bar", mtest.FirstBatch, clientDoc))
+		mt.AddMockResponses(mtest.CreateWriteErrorsResponse(mtest.WriteError{Code: 1, Message: "token insert error"}))
 		mt.AddMockResponses(mtest.CreateWriteErrorsResponse(mtest.WriteError{Code: 1, Message: "token insert error"}))
 
 		req := TokenRequest{
@@ -1000,7 +1029,7 @@ func TestMongoServer_JWKs(t *testing.T) {
 	mt.Run("decode error", func(mt *mtest.T) {
 		server := newTestMongoServer(mt)
 		invalidDoc := bson.D{{Key: "key", Value: 123}} // Invalid type for key
-		mt.AddMockResponses(mtest.CreateCursorResponse(1, "foo.bar", mtest.FirstBatch, invalidDoc))
+		mt.AddMockResponses(mtest.CreateCursorResponse(0, "foo.bar", mtest.FirstBatch, invalidDoc))
 		mt.AddMockResponses(mtest.CreateCursorResponse(0, "foo.bar", mtest.NextBatch))
 
 		_, err := server.JWKs(context.Background())
