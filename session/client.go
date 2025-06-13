@@ -39,7 +39,7 @@ func (c *Client) Authenticate(w http.ResponseWriter, r *http.Request) (*UserSess
 	}
 	// Fall back to OAuth introspection
 	authHeader := r.Header.Get("Authorization")
-	if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+	if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") && c.oauthServer != nil {
 		token := strings.TrimSpace(authHeader[7:])
 		info, err := c.oauthServer.Introspect(r.Context(), oserver.IntrospectRequest{
 			Token: token,
@@ -69,6 +69,7 @@ func (c *Client) Authenticate(w http.ResponseWriter, r *http.Request) (*UserSess
 		UserID:    fmt.Sprintf("anon-%d", time.Now().UnixNano()),
 		SignedIn:  false,
 		ExpiresAt: time.Now().Add(c.ttl).Unix(),
+		Roles:     []string{"default"},
 	}
 	_ = SetSessionCookie(w, u, c.secret)
 	reqCtx := u.WithContext(r.Context())
