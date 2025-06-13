@@ -1199,7 +1199,7 @@ func TestMongoServer_HasAccess(t *testing.T) {
 	mt := mtest.New(t, mtest.NewOptions().ClientType(mtest.Mock))
 	defer mt.ClearCollections()
 
-	mockRbacAccess := func(resource string, userId string, scopes ...string) bool {
+	mockRbacAccess := func(resource string, userId, accountId string, scopes ...string) bool {
 		if resource == "protected_resource" {
 			if userId == "testuser" && contains(scopes, "api:read") {
 				return true

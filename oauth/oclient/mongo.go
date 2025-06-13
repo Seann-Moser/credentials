@@ -84,7 +84,9 @@ func (s *MongoOAuthService) ListIntegrations(ctx context.Context, accountID stri
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() {
+		_ = cursor.Close(ctx)
+	}()
 
 	var out []Integration
 	for cursor.Next(ctx) {

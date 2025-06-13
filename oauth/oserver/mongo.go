@@ -2,6 +2,7 @@ package oserver
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -174,6 +175,19 @@ func (s *MongoServer) DeleteClient(ctx context.Context, clientID string) error {
 func (s *MongoServer) Authorize(ctx context.Context, req AuthRequest) (*AuthResponse, error) {
 	// Validate client, redirect URI, scope...
 	// generate code
+	meta := make(map[string]interface{})
+	if req.State != "" {
+		d, err := base64.StdEncoding.DecodeString(req.State)
+		if err == nil {
+			err = json.Unmarshal([]byte(d), &meta)
+			if err == nil {
+				slog.Error("failed unmarshal state", slog.String("state", req.State))
+			}
+		} else {
+			slog.Error("failed decode state", slog.String("state", req.State))
+		}
+	}
+
 	code := primitive.NewObjectID().Hex()
 	rec := bson.M{
 		"code":                  code,
@@ -184,6 +198,9 @@ func (s *MongoServer) Authorize(ctx context.Context, req AuthRequest) (*AuthResp
 		"code_challenge_method": req.CodeChallengeMethod,
 		"grant_type":            GrantTypeAuthorizationCode,
 		"created_at":            time.Now().Unix(),
+	}
+	for k, v := range meta {
+		rec[k] = v
 	}
 	_, err := s.tokensColl.InsertOne(ctx, rec)
 	if err != nil {
@@ -332,7 +349,14 @@ func (s *MongoServer) Introspect(ctx context.Context, req IntrospectRequest) (*I
 	}
 	expires := doc["expires_at"].(int64)
 	active := time.Now().Unix() < expires
-	return &IntrospectResponse{Active: active, ClientID: ss(doc["client_id"]), Scope: ss(doc["scope"]), Exp: expires}, nil
+	return &IntrospectResponse{
+		Active:    active,
+		ClientID:  ss(doc["client_id"]),
+		Scope:     ss(doc["scope"]),
+		Exp:       expires,
+		UserID:    ss(doc["user_id"]),
+		AccountID: ss(doc["account_id"]),
+	}, nil
 }
 
 type JWKs struct {
@@ -407,12 +431,12 @@ func (s *MongoServer) SendClientImage(w http.ResponseWriter, r *http.Request, cl
 	return err
 }
 
-func (s *MongoServer) HasAccess(r *http.Request, resource string, hasRbacAccess func(resource string, userId string, scopes ...string) bool) (bool, error) {
+func (s *MongoServer) HasAccess(r *http.Request, resource string, hasRbacAccess func(resource string, userId, accountId string, scopes ...string) bool) (bool, error) {
 	ctx := r.Context()
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(auth, "Bearer ") {
 		// no token: empty user and scopes
-		return hasRbacAccess(resource, ""), nil
+		return hasRbacAccess(resource, "", ""), nil
 	}
 	token := strings.TrimPrefix(auth, "Bearer ")
 	var doc bson.M
@@ -430,12 +454,13 @@ func (s *MongoServer) HasAccess(r *http.Request, resource string, hasRbacAccess 
 	}
 	// extract user and scopes
 	userId, _ := doc["user_id"].(string)
+	accountId, _ := doc["account_id"].(string)
 	scopeStr, _ := doc["scope"].(string)
 	var scopes []string
 	if scopeStr != "" {
 		scopes = strings.Fields(scopeStr)
 	}
-	allowed := hasRbacAccess(resource, userId, scopes...)
+	allowed := hasRbacAccess(resource, userId, accountId, scopes...)
 	return allowed, nil
 }
 

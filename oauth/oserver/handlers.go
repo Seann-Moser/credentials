@@ -193,7 +193,7 @@ func (h *Handler) SendClientImage(w http.ResponseWriter, r *http.Request) {
 }
 
 // HasAccessMiddleware wraps a handler to enforce RBAC via HasAccess()
-func (h *Handler) HasAccessMiddleware(resource string, hasRbacAccess func(string, string, ...string) bool) func(http.Handler) http.Handler {
+func (h *Handler) HasAccessMiddleware(resource string, hasRbacAccess func(string, string, string, ...string) bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ok, err := h.server.HasAccess(r, resource, hasRbacAccess)

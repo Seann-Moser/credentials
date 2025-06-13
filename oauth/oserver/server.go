@@ -24,5 +24,5 @@ type OServer interface {
 	SetClientImage(r *http.Request, clientID string) error
 	SendClientImage(w http.ResponseWriter, r *http.Request, clientID string) error
 
-	HasAccess(r *http.Request, resource string, hasRbacAccess func(resource string, userId string, scopes ...string) bool) (bool, error)
+	HasAccess(r *http.Request, resource string, hasRbacAccess func(resource string, userId, accountId string, scopes ...string) bool) (bool, error)
 }

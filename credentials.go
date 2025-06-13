@@ -22,7 +22,7 @@ func NewCredentials(oServer oserver.OServer, rba rbac.Manager) *Credentials {
 func (c *Credentials) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u := fullURL(r)
-		hasAccess, err := c.oServer.HasAccess(r, u, func(resource string, userId string, scopes ...string) bool {
+		hasAccess, err := c.oServer.HasAccess(r, u, func(resource string, userId, accountId string, scopes ...string) bool {
 			_, _ = c.rbac.HasPermission(r.Context(), userId, resource) //todo idk
 
 			return false

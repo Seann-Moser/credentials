@@ -26,6 +26,7 @@ type OAuthClient struct {
 type TokenRecord struct {
 	ClientID      string   `json:"client_id" db:"client_id" qc:"primary;charset::utf8"`
 	UserID        string   `json:"user_id,omitempty" db:"user_id" qc:"primary;charset::utf8"`
+	AccountID     string   `json:"account_id,omitempty" db:"account_id" qc:"update"`
 	Scope         []string `json:"scope" db:"scope" qc:"update;data_type::text"`
 	GrantType     string   `json:"grant_type" db:"grant_type" qc:"update"`
 	Code          string   `json:"code,omitempty" db:"code" qc:"update"`
@@ -87,6 +88,8 @@ type IntrospectResponse struct {
 	Scope     string `json:"scope,omitempty"`
 	ClientID  string `json:"client_id,omitempty"`
 	Username  string `json:"username,omitempty"`
+	UserID    string `json:"user_id,omitempty"`
+	AccountID string `json:"account_id,omitempty"`
 	Exp       int64  `json:"exp,omitempty"`
 	Iat       int64  `json:"iat,omitempty"`
 	TokenType string `json:"token_type,omitempty"`
