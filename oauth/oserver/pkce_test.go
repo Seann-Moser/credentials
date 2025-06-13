@@ -55,5 +55,5 @@ func TestValidateCodeChallenge(t *testing.T) {
 	if ValidateCodeChallenge(verifier, challenge+"x") {
 		t.Errorf("ValidateCodeChallenge should fail for non-matching challenge")
 	}
-	
+
 }

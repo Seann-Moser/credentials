@@ -1388,7 +1388,7 @@ func Test_castStringSlice(t *testing.T) {
 			}
 			// Handle nil case for nil input / non-primitive.A
 			if tt.input == nil || (len(tt.expected) == 0 && result == nil) { // This handles cases like empty slice and actually nil
-				if result != nil && len(result) != 0 {
+				if len(result) != 0 {
 					t.Errorf("Expected nil or empty slice for nil/non-primitive.A input, got %v", result)
 				}
 			}
