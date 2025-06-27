@@ -2,9 +2,12 @@ package oserver
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"github.com/google/uuid"
 	"io"
 	"log/slog"
 	"net/http"
@@ -60,10 +63,42 @@ func ss(i interface{}) string {
 	}
 }
 
+// helper to produce a URL-safe base64 secret of n bytes
+func generateSecret(n int) (string, error) {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
 // RegisterClient inserts a new OAuth client into the store.
 func (s *MongoServer) RegisterClient(ctx context.Context, client *OAuthClient) (*OAuthClient, error) {
+	if len(client.GrantTypes) == 0 {
+		client.GrantTypes = []string{"client_credentials"}
+	}
+	if len(client.RedirectURIs) == 0 {
+		return nil, fmt.Errorf("no redirect_uris provided")
+	}
+	if client.Name == "" {
+		return nil, fmt.Errorf("no name provided")
+	}
+	clientID := uuid.New().String()
+
+	// 2) generate a random 32-byte secret (URL-safe base64)
+	secret, err := generateSecret(32)
+	if err != nil {
+		return nil, err
+	}
+
+	// 3) assign back onto your model
+	client.ClientID = clientID
+	client.ClientSecret = secret
+
+	// 4) persist to Mongo
 	clientDoc := bson.M{
 		"client_id":                  client.ClientID,
+		"account_id":                 client.AccountID,
 		"client_secret":              client.ClientSecret,
 		"name":                       client.Name,
 		"image_url":                  client.ImageURL,
@@ -73,10 +108,11 @@ func (s *MongoServer) RegisterClient(ctx context.Context, client *OAuthClient) (
 		"response_types":             client.ResponseTypes,
 		"token_endpoint_auth_method": client.TokenEndpointAuth,
 	}
-	_, err := s.clientsColl.InsertOne(ctx, clientDoc)
-	if err != nil {
+
+	if _, err := s.clientsColl.InsertOne(ctx, clientDoc); err != nil {
 		return nil, err
 	}
+
 	return client, nil
 }
 
@@ -92,6 +128,7 @@ func (s *MongoServer) GetClient(ctx context.Context, clientID string) (*OAuthCli
 	client := &OAuthClient{
 		ClientID:          ss(doc["client_id"]),
 		ClientSecret:      ss(doc["client_secret"]),
+		AccountID:         ss(doc["account_id"]),
 		Name:              ss(doc["name"]),
 		ImageURL:          ss(doc["image_url"]),
 		RedirectURIs:      castStringSlice(doc["redirect_uris"]),
@@ -124,10 +161,15 @@ func (s *MongoServer) ListClients(ctx context.Context, accountID string) ([]*OAu
 			return nil, err
 		}
 		if ss(doc["client_id"]) == "" {
-			return nil, errors.New("client_id is empty")
+			slog.Error("skipping client, no client id")
+			continue
 		}
 		if ss(doc["name"]) == "" {
-			return nil, errors.New("name is empty")
+			slog.Error("skipping client, no name")
+			continue
+		}
+		if ss(doc["account_id"]) != "" && ss(doc["account_id"]) != accountID {
+			continue
 		}
 		list = append(list, &OAuthClient{
 			ClientID:      ss(doc["client_id"]),

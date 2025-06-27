@@ -10,6 +10,7 @@ const GrantTypeRefreshToken GrantType = "refresh_token"
 // stores client metadata (dynamic or admin-registered)
 type OAuthClient struct {
 	ClientID          string   `json:"client_id" db:"client_id" qc:"primary;charset::utf8"`
+	AccountID         string   `json:"account_id" db:"account_id" qc:"primary;charset::utf8"`
 	ClientSecret      string   `json:"client_secret,omitempty" db:"client_secret" qc:"update"`
 	Name              string   `json:"name" db:"name" qc:"primary;update;charset::utf8"`
 	ImageURL          string   `json:"image_url" db:"image_path" qc:"update"`

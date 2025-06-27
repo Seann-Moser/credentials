@@ -4,6 +4,7 @@ go 1.24.4
 
 require (
 	github.com/Seann-Moser/rbac v1.0.5
+	github.com/google/uuid v1.6.0
 	go.mongodb.org/mongo-driver v1.17.4
 	golang.org/x/oauth2 v0.30.0
 )

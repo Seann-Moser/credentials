@@ -14,7 +14,7 @@ type OServer interface {
 	JWKs(ctx context.Context) (*JWKSet, error)
 
 	// --- client management ---
-	RegisterClient(ctx context.Context, client *OAuthClient) (*OAuthClient, error)
+	RegisterClient(ctx context.Context, clienSetSessionCookiet *OAuthClient) (*OAuthClient, error)
 	UpdateClient(ctx context.Context, client *OAuthClient) (*OAuthClient, error)
 	DeleteClient(ctx context.Context, clientID string) error
 	GetClient(ctx context.Context, clientID string) (*OAuthClient, error)
