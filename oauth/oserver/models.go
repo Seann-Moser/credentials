@@ -43,6 +43,7 @@ type AuthRequest struct {
 	ResponseType        string `json:"response_type"` // e.g. "code"
 	ClientID            string `json:"client_id"`
 	RedirectURI         string `json:"redirect_uri"`
+	Decision            string `json:"decision"`
 	Scope               string `json:"scope,omitempty"`
 	State               string `json:"state,omitempty"`
 	CodeChallenge       string `json:"code_challenge,omitempty"`        // PKCE

@@ -2,7 +2,9 @@ package oserver
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"html/template"
 	"net/http"
 	"net/url"
 	"strings"
@@ -24,6 +26,8 @@ func NewHandler(server OServer, contentType ContentType) Handler {
 	return Handler{server: server, contentType: contentType}
 }
 
+// Authorize handles the OAuth 2.0 authorization endpoint requests.
+// It now includes logic to display an optional consent page.
 func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	req := AuthRequest{
@@ -35,12 +39,61 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 		CodeChallenge:       q.Get("code_challenge"),
 		CodeChallengeMethod: q.Get("code_challenge_method"),
 	}
+
+	// --- New Logic for Consent Page ---
+	// Determine if the consent page should be shown.
+	// In a real application, this logic would be more robust:
+	// - Check if the user is authenticated.
+	// - Check if the user has previously granted consent for this client and requested scopes.
+	// - Based on your OAuth server's policy, you might always show consent,
+	//   or only for new clients/scopes, or for sensitive scopes.
+	// For this example, we'll use a query parameter `force_consent=true` to trigger it.
+	forceConsent := q.Get("force_consent") == "true"
+
+	// Retrieve client details. First try mock clients, then the actual OServer.
+	client, err := h.server.GetClient(r.Context(), req.ClientID)
+	if err != nil || client == nil {
+		http.Error(w, fmt.Sprintf("client not found or unable to retrieve client details: %s", req.ClientID), http.StatusBadRequest)
+		return
+	}
+
+	if forceConsent { // Replace this condition with your actual consent policy
+		// Prepare data for the consent HTML template.
+		data := ConsentPageData{
+			ClientName:          client.Name,
+			ClientImageURL:      client.ImageURL,
+			RequestedScopes:     req.Scope,
+			ResponseType:        req.ResponseType,
+			ClientID:            req.ClientID,
+			RedirectURI:         req.RedirectURI,
+			Scope:               req.Scope,
+			State:               req.State,
+			CodeChallenge:       req.CodeChallenge,
+			CodeChallengeMethod: req.CodeChallengeMethod,
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := consentTemplate.Execute(w, data); err != nil {
+			http.Error(w, "failed to render consent page", http.StatusInternalServerError)
+		}
+		return // Stop the flow here; the user will interact with the consent page and submit to /consent
+	}
+	// --- End New Logic ---
+
+	// If no consent page is needed (or after consent is given via /consent endpoint),
+	// proceed with the original authorization flow.
+	h.proceedAuthorization(w, r, req)
+}
+
+// proceedAuthorization is a helper function to encapsulate the logic for
+// completing the authorization flow and redirecting the user.
+func (h *Handler) proceedAuthorization(w http.ResponseWriter, r *http.Request, req AuthRequest) {
 	resp, err := h.server.Authorize(r.Context(), req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	// redirect back
+	// Construct the redirect URI with the authorization code and state.
 	u, err := url.Parse(req.RedirectURI)
 	if err != nil {
 		http.Error(w, "invalid redirect_uri", http.StatusBadRequest)
@@ -53,6 +106,75 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 	}
 	u.RawQuery = s.Encode()
 	http.Redirect(w, r, u.String(), http.StatusFound)
+}
+
+func (h *Handler) parseAuthRequest(r *http.Request) (*AuthRequest, error) {
+	var req AuthRequest
+	if strings.HasPrefix(r.Header.Get("Content-Type"), string(ContentTypeForm)) {
+		// Parse the form data submitted from the consent page.
+		if err := r.ParseForm(); err != nil {
+			return nil, err
+		}
+
+		// Get the user's decision (accept/deny).
+		decision := r.Form.Get("decision")
+		if decision == "" {
+			return nil, errors.New("decision is required")
+		}
+
+		// Reconstruct the original authorization request from hidden form fields.
+		return &AuthRequest{
+			ResponseType:        r.Form.Get("response_type"),
+			ClientID:            r.Form.Get("client_id"),
+			Decision:            decision,
+			RedirectURI:         r.Form.Get("redirect_uri"),
+			Scope:               r.Form.Get("scope"),
+			State:               r.Form.Get("state"),
+			CodeChallenge:       r.Form.Get("code_challenge"),
+			CodeChallengeMethod: r.Form.Get("code_challenge_method"),
+		}, nil
+	} else {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+	}
+	return &req, nil
+}
+
+// Consent handles the POST request from the consent page.
+// It processes the user's decision (accept or deny) and continues the OAuth flow accordingly.
+func (h *Handler) Consent(w http.ResponseWriter, r *http.Request) {
+	// Ensure the request method is POST.
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	req, err := h.parseAuthRequest(r)
+	// Parse the form data submitted from the consent page.
+	if err != nil {
+		http.Error(w, "failed to parse form data", http.StatusBadRequest)
+		return
+	}
+	// Reconstruct the original authorization request from hidden form fields.
+	switch req.Decision {
+	case "accept":
+		h.proceedAuthorization(w, r, *req)
+	case "deny":
+		u, err := url.Parse(req.RedirectURI)
+		if err != nil {
+			http.Error(w, "invalid redirect_uri", http.StatusBadRequest)
+			return
+		}
+		q := u.Query()
+		q.Set("error", "access_denied")
+		if req.State != "" {
+			q.Set("state", req.State)
+		}
+		u.RawQuery = q.Encode()
+		http.Redirect(w, r, u.String(), http.StatusFound)
+	default:
+		http.Error(w, "invalid consent decision", http.StatusBadRequest)
+	}
 }
 
 // TokenHandler handles /token POST requests
@@ -303,4 +425,122 @@ func (h *Handler) parseTokenRequest(r *http.Request) (TokenRequest, error) {
 		}
 	}
 	return req, nil
+}
+
+// ConsentPageData holds the necessary data to render the consent HTML template.
+type ConsentPageData struct {
+	ClientName      string
+	ClientImageURL  string
+	RequestedScopes string // Comma-separated string of requested scopes
+	// Original authorization request parameters to be passed back to the /consent endpoint
+	ResponseType        string
+	ClientID            string
+	RedirectURI         string
+	Scope               string
+	State               string
+	CodeChallenge       string
+	CodeChallengeMethod string
+}
+
+// consentPageHTML is the embedded HTML template for the OAuth consent page.
+// It uses Tailwind CSS for styling and includes placeholders for dynamic content.
+const consentPageHTML = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authorize Application</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+    <div class="bg-white p-8 rounded-lg shadow-xl max-w-md w-full border border-gray-200">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">Authorize Application</h1>
+        <div class="flex flex-col items-center mb-6">
+            {{if .ClientImageURL}}
+                <img src="{{.ClientImageURL}}" alt="{{.ClientName}} Logo" class="w-24 h-24 rounded-full border-4 border-indigo-500 shadow-md mb-4 object-cover">
+            {{else}}
+                <div class="w-24 h-24 rounded-full bg-gray-300 flex items-center justify-center text-gray-600 text-5xl font-semibold mb-4 border-4 border-gray-400">
+                    {{if .ClientName}}{{.ClientName | firstChar}}{{else}}&#x1F4BB;{{end}}
+                </div>
+            {{end}}
+            <h2 class="text-2xl font-semibold text-gray-900 text-center">{{.ClientName}}</h2>
+        </div>
+
+        <p class="text-gray-700 text-center mb-6">
+            <span class="font-medium">"{{.ClientName}}"</span> would like to access your account.
+        </p>
+
+        <div class="bg-blue-50 p-4 rounded-lg mb-6 border border-blue-200">
+            <h3 class="text-lg font-semibold text-blue-800 mb-2">This application is requesting the following permissions:</h3>
+            <ul class="list-disc list-inside text-blue-700">
+                {{range .RequestedScopes | split ","}}
+                    <li class="mb-1"><code>{{.}}</code></li>
+                {{end}}
+            </ul>
+            <p class="text-sm text-blue-600 mt-3">
+                Granting these permissions allows "{{.ClientName}}" to perform actions on your behalf.
+            </p>
+        </div>
+
+        <form action="/consent" method="POST" class="space-y-4">
+            <!-- Hidden fields to pass original authorization request parameters -->
+            <input type="hidden" name="response_type" value="{{.ResponseType}}">
+            <input type="hidden" name="client_id" value="{{.ClientID}}">
+            <input type="hidden" name="redirect_uri" value="{{.RedirectURI}}">
+            <input type="hidden" name="scope" value="{{.Scope}}">
+            <input type="hidden" name="state" value="{{.State}}">
+            <input type="hidden" name="code_challenge" value="{{.CodeChallenge}}">
+            <input type="hidden" name="code_challenge_method" value="{{.CodeChallengeMethod}}">
+
+            <button type="submit" name="decision" value="accept"
+                    class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-75">
+                Accept and Continue
+            </button>
+            <button type="submit" name="decision" value="deny"
+                    class="w-full bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-3 px-4 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-75">
+                Deny
+            </button>
+        </form>
+        <p class="text-xs text-gray-500 text-center mt-6">
+            By clicking "Accept and Continue", you grant "{{.ClientName}}" access to your requested data.
+        </p>
+    </div>
+</body>
+</html>
+`
+
+// consentTemplate is the parsed HTML template for efficient rendering.
+var consentTemplate *template.Template
+
+// init function to parse the HTML template and register custom functions.
+func init() {
+	funcMap := template.FuncMap{
+		// split function splits a string by a separator and returns a slice of strings.
+		"split": func(s string, sep string) []string {
+			if s == "" {
+				return nil
+			}
+			return strings.Split(s, sep)
+		},
+		// firstChar returns the first character of a string, or an empty string if the input is empty.
+		"firstChar": func(s string) string {
+			if len(s) > 0 {
+				return string(s[0])
+			}
+			return ""
+		},
+	}
+	// Parse the template with custom functions. template.Must panics if parsing fails.
+	consentTemplate = template.Must(template.New("consent").Funcs(funcMap).Parse(consentPageHTML))
 }
