@@ -144,11 +144,6 @@ func (h *Handler) parseAuthRequest(r *http.Request) (*AuthRequest, error) {
 // Consent handles the POST request from the consent page.
 // It processes the user's decision (accept or deny) and continues the OAuth flow accordingly.
 func (h *Handler) Consent(w http.ResponseWriter, r *http.Request) {
-	// Ensure the request method is POST.
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	req, err := h.parseAuthRequest(r)
 	// Parse the form data submitted from the consent page.
 	if err != nil {
