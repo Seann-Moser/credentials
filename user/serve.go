@@ -80,43 +80,42 @@ func writeError(w http.ResponseWriter, status int, message string) {
 // =============================================================================
 
 // ContextKey is a custom type for context key to avoid collisions.
-//type ContextKey string
+type ContextKey string
 
-//
-//const userCtxKey ContextKey = "user"
+const userCtxKey ContextKey = "user"
 
-//// AuthMiddleware checks for a valid session and attaches the User object to the request context.
-//func (s *Server) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
-//	return func(w http.ResponseWriter, r *http.Request) {
-//		ses, err := session.GetSessionFromCookie(r, s.SessionSecret)
-//		if err != nil || !ses.SignedIn {
-//			log.Printf("Authentication failed: %v", err)
-//			next.ServeHTTP(w, r)
-//			return
-//		}
-//
-//		user, err := s.Store.GetUserByID(r.Context(), ses.UserID)
-//		if err != nil {
-//			log.Printf("User not found from session ID %s: %v", ses.UserID, err)
-//			writeError(w, http.StatusUnauthorized, "User session invalid or user not found")
-//			session.ClearSessionCookie(w) // Clear potentially stale cookie
-//			return
-//		}
-//
-//		// Attach user to context
-//		ctx := context.WithValue(r.Context(), userCtxKey, user)
-//		next.ServeHTTP(w, r.WithContext(ctx))
-//	}
-//}
-//
-//// GetUserFromContext retrieves the User from the request context.
-//func GetUserFromContext(ctx context.Context) (*User, error) {
-//	user, ok := ctx.Value(userCtxKey).(*User)
-//	if !ok {
-//		return nil, errors.New("user not found in context")
-//	}
-//	return user, nil
-//}
+// AuthMiddleware checks for a valid session and attaches the User object to the request context.
+func (s *Server) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ses, err := session.GetSessionFromCookie(r, s.SessionSecret)
+		if err != nil || !ses.SignedIn {
+			log.Printf("Authentication failed: %v", err)
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		user, err := s.Store.GetUserByID(r.Context(), ses.UserID)
+		if err != nil {
+			log.Printf("User not found from session ID %s: %v", ses.UserID, err)
+			writeError(w, http.StatusUnauthorized, "User session invalid or user not found")
+			session.ClearSessionCookie(w) // Clear potentially stale cookie
+			return
+		}
+
+		// Attach user to context
+		ctx := context.WithValue(r.Context(), userCtxKey, user)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	}
+}
+
+// GetUserFromContext retrieves the User from the request context.
+func GetUserFromContext(ctx context.Context) (*User, error) {
+	user, ok := ctx.Value(userCtxKey).(*User)
+	if !ok {
+		return nil, errors.New("user not found in context")
+	}
+	return user, nil
+}
 
 // =============================================================================
 // Handlers
