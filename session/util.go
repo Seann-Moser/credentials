@@ -62,3 +62,16 @@ func SetSessionCookie(w http.ResponseWriter, u *UserSessionData, secret []byte) 
 	})
 	return nil
 }
+
+// ClearSessionCookie clears the session cookie by setting its expiration to a past date.
+func ClearSessionCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0), // Set to a past time to expire immediately
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
