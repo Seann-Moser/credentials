@@ -505,6 +505,16 @@ func (s *Server) ManageUserHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "User roles updated successfully", "userId": user.UserID(), "roles": strings.Join(user.Roles, ",")})
 }
 
+func (s *Server) GetUser(w http.ResponseWriter, r *http.Request) {
+	user, err := GetUserFromContext(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, user)
+
+}
+
 // UserSettingsUpdateRequest represents the request body for updating user settings.
 type UserSettingsUpdateRequest struct {
 	NewUsername *string                `json:"newUsername,omitempty"`
