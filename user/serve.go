@@ -94,8 +94,8 @@ type ContextKey string
 const userCtxKey ContextKey = "user"
 
 // AuthMiddleware checks for a valid session and attaches the User object to the request context.
-func (s *Server) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func (s *Server) AuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ses, err := session.GetSessionFromCookie(r, s.SessionSecret)
 		if err != nil || !ses.SignedIn {
 			log.Printf("Authentication failed: %v", err)
@@ -114,7 +114,7 @@ func (s *Server) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// Attach user to context
 		ctx := context.WithValue(r.Context(), userCtxKey, user)
 		next.ServeHTTP(w, r.WithContext(ctx))
-	}
+	})
 }
 
 // GetUserFromContext retrieves the User from the request context.
