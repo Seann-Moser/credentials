@@ -11,6 +11,7 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/google/uuid"
 	"github.com/pquerna/otp/totp" // For TOTP generation and validation
+	redis "github.com/redis/go-redis/v9"
 	"regexp"
 	"strings"
 
@@ -31,6 +32,7 @@ type Server struct {
 	Store              Store
 	SessionSecret      []byte
 	WebAuthn           *webauthn.WebAuthn
+	redis              redis.Cmdable
 	challengeStore     map[string]*webauthn.SessionData // In-memory store for WebAuthn challenges todo make this redis
 	totpChallengeStore map[string]totpChallengeData     // In-memory store for TOTP login challenges todo make this redis
 	RPName             string                           // Relying Party Name for TOTP provisioning
@@ -58,6 +60,9 @@ func NewServer(store Store, sessionSecret []byte, rpID, rpDisplayName, rpOrigin 
 		totpChallengeStore: make(map[string]totpChallengeData),     // Initialize TOTP challenge store
 		RPName:             rpDisplayName,                          // Use display name as RPName for TOTP
 	}, nil
+}
+func (s *Server) SetupRedis(cmdable redis.Cmdable) {
+	s.redis = cmdable
 }
 
 // writeJSON helper sends a JSON response.
@@ -272,10 +277,10 @@ func (s *Server) LoginPasswordHandler(w http.ResponseWriter, r *http.Request) {
 	if user.TOTPEnabled {
 		// Initiate TOTP challenge
 		sessionID := uuid.New().String()
-		s.totpChallengeStore[sessionID] = totpChallengeData{
+		s.setTopChallenge(sessionID, totpChallengeData{
 			UserID:    user.UserID(),
 			ExpiresAt: time.Now().Add(totpChallengeExpiry),
-		}
+		})
 		log.Printf("User %s requires TOTP. Initiating challenge with session ID: %s", user.Username, sessionID)
 		writeJSON(w, http.StatusAccepted, map[string]string{
 			"message":   "TOTP required",
@@ -302,6 +307,62 @@ func (s *Server) LoginPasswordHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Logged in successfully", "userId": user.UserID(), "username": user.Username})
 }
 
+func (s *Server) setTopChallenge(key string, t totpChallengeData) {
+	if s.redis == nil {
+		s.totpChallengeStore[key] = t
+		return
+	}
+	data, _ := json.Marshal(t)
+	s.redis.Set(context.Background(), "topt-"+key, string(data), totpChallengeExpiry)
+}
+
+func (s *Server) getTopChallenge(key string) *totpChallengeData {
+	if s.redis == nil {
+		if t, found := s.totpChallengeStore[key]; found {
+			return &t
+		}
+		return nil
+	}
+	topChallenge, err := s.redis.Get(context.Background(), "topt-"+key).Result()
+	if err != nil {
+		return nil
+	}
+	var t totpChallengeData
+	err = json.Unmarshal([]byte(topChallenge), &t)
+	if err != nil {
+		return nil
+	}
+	return &t
+}
+
+func (s *Server) setChallenge(key string, t *webauthn.SessionData) {
+	if s.redis == nil {
+		s.challengeStore[key] = t
+		return
+	}
+	data, _ := json.Marshal(t)
+	s.redis.Set(context.Background(), "webauth-"+key, string(data), totpChallengeExpiry)
+}
+
+func (s *Server) getChallenge(key string) *webauthn.SessionData {
+	if s.redis == nil {
+		if t, found := s.challengeStore[key]; found {
+			return t
+		}
+		return nil
+	}
+	topChallenge, err := s.redis.Get(context.Background(), "webauth-"+key).Result()
+	if err != nil {
+		return nil
+	}
+	var t webauthn.SessionData
+	err = json.Unmarshal([]byte(topChallenge), &t)
+	if err != nil {
+		return nil
+	}
+	return &t
+}
+
 // TOTPLoginRequest represents the request body for TOTP verification during login.
 type TOTPLoginRequest struct {
 	SessionID string `json:"sessionId"`
@@ -321,23 +382,27 @@ func (s *Server) LoginTOTPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	challenge, ok := s.totpChallengeStore[req.SessionID]
-	if !ok || time.Now().After(challenge.ExpiresAt) {
+	challenge := s.getTopChallenge(req.SessionID)
+	if challenge == nil || time.Now().After(challenge.ExpiresAt) {
 		writeError(w, http.StatusUnauthorized, "TOTP challenge expired or invalid")
 		return
 	}
+	defer func() {
+		delete(s.totpChallengeStore, req.SessionID) // Clear invalid challenge
+		if s.redis != nil {
+			s.redis.Del(context.Background(), "topt-"+req.SessionID)
+		}
+	}()
 
 	user, err := s.Store.GetUserByID(r.Context(), challenge.UserID)
 	if err != nil {
 		log.Printf("User not found for TOTP challenge ID %s: %v", req.SessionID, err)
 		writeError(w, http.StatusInternalServerError, "User not found")
-		delete(s.totpChallengeStore, req.SessionID) // Clear invalid challenge
 		return
 	}
 
 	if !user.TOTPEnabled || user.TOTPSecret == "" {
 		writeError(w, http.StatusBadRequest, "TOTP is not enabled for this user")
-		delete(s.totpChallengeStore, req.SessionID) // Clear invalid challenge
 		return
 	}
 
@@ -348,9 +413,6 @@ func (s *Server) LoginTOTPHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "Invalid TOTP code")
 		return
 	}
-
-	// If TOTP is valid, clear the challenge and set the session cookie
-	delete(s.totpChallengeStore, req.SessionID)
 
 	sessionData := &session.UserSessionData{
 		UserID:   user.UserID(),
@@ -445,8 +507,9 @@ func (s *Server) ManageUserHandler(w http.ResponseWriter, r *http.Request) {
 
 // UserSettingsUpdateRequest represents the request body for updating user settings.
 type UserSettingsUpdateRequest struct {
-	NewUsername *string `json:"newUsername,omitempty"`
-	NewPassword *string `json:"newPassword,omitempty"`
+	NewUsername *string                `json:"newUsername,omitempty"`
+	NewPassword *string                `json:"newPassword,omitempty"`
+	Settings    map[string]interface{} `json:"settings,omitempty"`
 }
 
 // UserSettingsHandler handles authenticated user setting updates.
@@ -490,7 +553,15 @@ func (s *Server) UserSettingsHandler(w http.ResponseWriter, r *http.Request) {
 		user.PasswordHash = hashedPassword
 		updated = true
 	}
-
+	if req.Settings != nil {
+		for k, v := range req.Settings {
+			if v == nil {
+				delete(user.Settings, k)
+			} else {
+				user.Settings[k] = v
+			}
+		}
+	}
 	if !updated {
 		writeError(w, http.StatusBadRequest, "No settings provided for update")
 		return
@@ -534,7 +605,7 @@ func (s *Server) BeginPasskeyRegistrationHandler(w http.ResponseWriter, r *http.
 
 	// Store the session data (challenge) securely
 	// For simplicity, using in-memory map. In production, use Redis/database.
-	s.challengeStore[user.UserID()] = ses // Use user ID as key
+	s.setChallenge(user.UserID(), ses)
 	log.Printf("Begin passkey registration for user %s. Challenge stored.", user.Username)
 
 	writeJSON(w, http.StatusOK, options)
@@ -549,13 +620,17 @@ func (s *Server) FinishPasskeyRegistrationHandler(w http.ResponseWriter, r *http
 	}
 
 	// Retrieve stored challenge
-	ses, ok := s.challengeStore[user.UserID()]
-	if !ok {
+
+	ses := s.getChallenge(user.UserID())
+	if ses == nil {
 		writeError(w, http.StatusBadRequest, "No active passkey registration challenge found")
 		return
 	}
 	// Clear the challenge immediately after retrieval
 	delete(s.challengeStore, user.UserID())
+	if s.redis != nil {
+		s.redis.Del(context.Background(), "webauth-"+user.UserID())
+	}
 	credential, err := s.WebAuthn.FinishRegistration(user, *ses, r)
 	if err != nil {
 		log.Printf("Error finishing registration: %v", err)
@@ -610,7 +685,7 @@ func (s *Server) BeginPasskeyLoginHandler(w http.ResponseWriter, r *http.Request
 	// Store the session data (challenge)
 	// Use a temporary unique ID for the session challenge, not directly userID for login.
 	sessionID := uuid.New().String()
-	s.challengeStore[sessionID] = ses
+	s.setChallenge(sessionID, ses)
 	log.Printf("Begin passkey login. Challenge stored with session ID: %s", sessionID)
 
 	// Attach session ID to the response headers/body for the client to use in finish step
@@ -628,13 +703,16 @@ func (s *Server) FinishPasskeyLoginHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Retrieve stored challenge
-	ses, ok := s.challengeStore[sessionID]
-	if !ok {
+	ses := s.getChallenge(sessionID)
+	if ses == nil {
 		writeError(w, http.StatusBadRequest, "No active passkey login challenge found or session expired")
 		return
 	}
 	// Clear the challenge immediately after retrieval
 	delete(s.challengeStore, sessionID)
+	if s.redis != nil {
+		s.redis.Del(context.Background(), "webauth-"+sessionID)
+	}
 
 	// Get the credential from the database based on the ID in the response
 	_, user, err := s.Store.GetPasskeyByCredentialID(r.Context(), ses.AllowedCredentialIDs[0])

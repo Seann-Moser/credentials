@@ -76,13 +76,14 @@ var _ webauthn.User = &User{}
 
 // User represents a user account in the system.
 type User struct {
-	ID           primitive.ObjectID   `bson:"_id,omitempty" json:"id"`
-	Username     string               `bson:"username" json:"username"`
-	PasswordHash []byte               `bson:"password_hash,omitempty" json:"-"` // Omit from JSON response
-	Roles        []string             `bson:"roles" json:"roles"`
-	Passkeys     []WebAuthnCredential `bson:"passkeys" json:"passkeys"`       // Use the BSON-friendly wrapper
-	TOTPSecret   string               `bson:"totp_secret,omitempty" json:"-"` // Base32 encoded secret, omit from JSON
-	TOTPEnabled  bool                 `bson:"totp_enabled" json:"totp_enabled"`
+	ID           primitive.ObjectID     `bson:"_id,omitempty" json:"id"`
+	Username     string                 `bson:"username" json:"username"`
+	PasswordHash []byte                 `bson:"password_hash,omitempty" json:"-"` // Omit from JSON response
+	Roles        []string               `bson:"roles" json:"roles"`
+	Passkeys     []WebAuthnCredential   `bson:"passkeys" json:"passkeys"`       // Use the BSON-friendly wrapper
+	TOTPSecret   string                 `bson:"totp_secret,omitempty" json:"-"` // Base32 encoded secret, omit from JSON
+	TOTPEnabled  bool                   `bson:"totp_enabled" json:"totp_enabled"`
+	Settings     map[string]interface{} `bson:"settings,omitempty" json:"settings,omitempty"`
 }
 
 func (u *User) WebAuthnID() []byte {
