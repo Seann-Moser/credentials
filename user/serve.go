@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Seann-Moser/credentials/session"
+	"github.com/Seann-Moser/rbac"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/google/uuid"
 	"github.com/pquerna/otp/totp" // For TOTP generation and validation
@@ -33,17 +34,19 @@ type Server struct {
 	SessionSecret      []byte
 	WebAuthn           *webauthn.WebAuthn
 	redis              redis.Cmdable
+	rbac               *rbac.Manager
 	challengeStore     map[string]*webauthn.SessionData // In-memory store for WebAuthn challenges todo make this redis
 	totpChallengeStore map[string]totpChallengeData     // In-memory store for TOTP login challenges todo make this redis
 	RPName             string                           // Relying Party Name for TOTP provisioning
 }
 
 // NewServer creates a new Server instance.
-func NewServer(store Store, sessionSecret []byte, rpID, rpDisplayName, rpOrigin string) (*Server, error) {
+func NewServer(store Store, rbac *rbac.Manager, sessionSecret []byte, rpID, rpDisplayName, rpOrigin string) (*Server, error) {
 	wv, err := webauthn.New(&webauthn.Config{
 		RPDisplayName: rpDisplayName, // Display Name for your site
 		RPID:          rpID,          // The origin for your site
 		RPOrigins:     []string{rpOrigin},
+
 		// For development, allow http:
 		// AttestationPreference: "none", // Recommended for production
 		// Timeout:                60000,
@@ -54,6 +57,7 @@ func NewServer(store Store, sessionSecret []byte, rpID, rpDisplayName, rpOrigin 
 
 	return &Server{
 		Store:              store,
+		rbac:               rbac,
 		SessionSecret:      sessionSecret,
 		WebAuthn:           wv,
 		challengeStore:     make(map[string]*webauthn.SessionData), // Initialize WebAuthn challenge store
@@ -238,6 +242,20 @@ func (s *Server) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error creating user: %v", err)
 		writeError(w, http.StatusInternalServerError, "Failed to register user")
 		return
+	}
+	role, err := s.rbac.Roles.GetRoleByName(r.Context(), "user")
+	if role == nil || err != nil {
+		role = &rbac.Role{Name: "user"}
+		err := s.rbac.CreateRole(r.Context(), role)
+		if err != nil {
+			log.Printf("Error creating role: %v", err)
+		}
+	}
+	if role != nil {
+		err = s.rbac.AssignRoleToUser(r.Context(), user.ID.String(), role.ID)
+		if err != nil {
+			log.Printf("Error assigning role to user: %v", err)
+		}
 	}
 
 	log.Printf("User registered: %s", user.Username)
