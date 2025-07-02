@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/Seann-Moser/credentials/oauth/oserver"
+	"github.com/Seann-Moser/credentials/utils"
 	"github.com/Seann-Moser/rbac"
 	"net/http"
 	"strings"
@@ -52,6 +53,7 @@ func (c *Client) Authenticate(w http.ResponseWriter, r *http.Request) (*UserSess
 				SignedIn:       true,
 				ServiceAccount: strings.HasPrefix(info.UserID, "service-"),
 				ExpiresAt:      info.Exp,
+				Domain:         utils.GetDomain(r),
 			}
 			// load roles
 			roles, err := c.rbacManager.ListRolesForUser(r.Context(), u.UserID)
@@ -70,6 +72,7 @@ func (c *Client) Authenticate(w http.ResponseWriter, r *http.Request) (*UserSess
 		SignedIn:  false,
 		ExpiresAt: time.Now().Add(c.ttl).Unix(),
 		Roles:     []string{"default"},
+		Domain:    utils.GetDomain(r),
 	}
 	_ = SetSessionCookie(w, u, c.secret)
 	reqCtx := u.WithContext(r.Context())

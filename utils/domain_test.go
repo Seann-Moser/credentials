@@ -1,4 +1,4 @@
-package user
+package utils
 
 import (
 	"net/http"
@@ -62,7 +62,7 @@ func TestGetDomain(t *testing.T) {
 				req.Header.Set("Referer", tt.refererHeader)
 			}
 
-			d := getDomain(req)
+			d := GetDomain(req)
 			if d != tt.want {
 				t.Errorf("getDomain() = %q; want %q", d, tt.want)
 			}
