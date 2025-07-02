@@ -1,9 +1,11 @@
 package user
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"encoding/base64"
+	"encoding/gob"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pquerna/otp/totp" // For TOTP generation and validation
 	redis "github.com/redis/go-redis/v9"
+	"log/slog"
 	"regexp"
 	"strings"
 
@@ -369,31 +372,34 @@ func (s *Server) getTopChallenge(key string) *totpChallengeData {
 }
 
 func (s *Server) setChallenge(key string, t *webauthn.SessionData) {
-	if s.redis == nil {
-		s.challengeStore[key] = t
-		return
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	if err := enc.Encode(t); err != nil {
+		log.Printf("gob encode error: %v", err)
 	}
-	data, _ := json.Marshal(t)
-	s.redis.Set(context.Background(), "webauth-"+key, string(data), totpChallengeExpiry)
+
+	if s.redis != nil {
+		s.redis.Set(context.Background(), "webauthn-"+key, buf.Bytes(), totpChallengeExpiry)
+	} else {
+		s.challengeStore[key] = t
+	}
 }
 
 func (s *Server) getChallenge(key string) *webauthn.SessionData {
-	if s.redis == nil {
-		if t, found := s.challengeStore[key]; found {
-			return t
+	if s.redis != nil {
+		data, err := s.redis.Get(context.Background(), "webauthn-"+key).Bytes()
+		if err != nil {
+			return nil
 		}
-		return nil
+		var sd webauthn.SessionData
+		buf := bytes.NewBuffer(data)
+		if err := gob.NewDecoder(buf).Decode(&sd); err != nil {
+			log.Printf("gob decode error: %v", err)
+			return nil
+		}
+		return &sd
 	}
-	topChallenge, err := s.redis.Get(context.Background(), "webauth-"+key).Result()
-	if err != nil {
-		return nil
-	}
-	var t webauthn.SessionData
-	err = json.Unmarshal([]byte(topChallenge), &t)
-	if err != nil {
-		return nil
-	}
-	return &t
+	return s.challengeStore[key]
 }
 
 // TOTPLoginRequest represents the request body for TOTP verification during login.
@@ -715,7 +721,12 @@ func (s *Server) BeginPasskeyLoginHandler(w http.ResponseWriter, r *http.Request
 			writeError(w, http.StatusInternalServerError, "Failed to begin passkey login")
 			return
 		}
+
 		// If user not found, `BeginLogin` will handle it by providing options for discoverable creds.
+	}
+	if user == nil {
+		writeError(w, http.StatusForbidden, "invalid user")
+		return
 	}
 
 	// Generate WebAuthn authentication options
@@ -740,7 +751,6 @@ func (s *Server) BeginPasskeyLoginHandler(w http.ResponseWriter, r *http.Request
 
 // FinishPasskeyLoginHandler finalizes the passkey authentication.
 func (s *Server) FinishPasskeyLoginHandler(w http.ResponseWriter, r *http.Request) {
-	//todo idk fix this
 	sessionID := r.Header.Get("X-WebAuthn-Session-ID") // Get session ID from client
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "WebAuthn session ID missing from header")
@@ -758,7 +768,6 @@ func (s *Server) FinishPasskeyLoginHandler(w http.ResponseWriter, r *http.Reques
 	if s.redis != nil {
 		s.redis.Del(context.Background(), "webauth-"+sessionID)
 	}
-
 	// Get the credential from the database based on the ID in the response
 	_, user, err := s.Store.GetPasskeyByCredentialID(r.Context(), ses.AllowedCredentialIDs[0])
 	if err != nil {
@@ -768,7 +777,7 @@ func (s *Server) FinishPasskeyLoginHandler(w http.ResponseWriter, r *http.Reques
 	}
 	credential, err := s.WebAuthn.FinishLogin(user, *ses, r)
 	if err != nil {
-		log.Printf("Error finishing login: %v", err)
+		slog.Error("Error finishing login", "err", err, "ses", ses, "user", user)
 		writeError(w, http.StatusInternalServerError, "Failed to finish passkey login")
 		return
 	}
