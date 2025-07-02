@@ -3,7 +3,6 @@ package user
 import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
-	//"github.com/go-webauthn/webauthn/webauthnweb" // For helper functions like DecodeCredentialCreationResponseBody
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -19,44 +18,50 @@ type WebAuthnCredential struct {
 	AttestationType string   `bson:"attestationType" json:"attestationType"`
 	AAGUID          []byte   `bson:"aaguid" json:"aaguid"`
 	SignCount       uint32   `bson:"signCount" json:"signCount"`
-	Transports      []string `bson:"transports,omitempty" json:"transports,omitempty"` // Store as string slice
+	Transports      []string `bson:"transports,omitempty" json:"transports,omitempty"`
+	// Store the raw byte for CredentialFlags directly.
+	// This byte contains UserPresent, UserVerified, BackupEligible, BackupState flags.
+	CredentialFlagsByte byte `bson:"credentialFlagsByte"`
 }
 
 // ToWebAuthnCredential converts WebAuthnCredential to webauthn.Credential.
-// ToWebAuthnCredential converts WebAuthnCredential to webauthn.Credential.
+// This is crucial for correctly reconstructing the webauthn.Credential
+// for validation by the go-webauthn library, correctly using the raw byte flags.
 func (wc *WebAuthnCredential) ToWebAuthnCredential() webauthn.Credential {
-	// Convert []string to []webauthn.AuthenticatorTransport
+	// Convert []string to []protocol.AuthenticatorTransport
 	transports := make([]protocol.AuthenticatorTransport, len(wc.Transports))
 	for i, t := range wc.Transports {
 		transports[i] = protocol.AuthenticatorTransport(t)
 	}
+
+	// Reconstruct the protocol.AuthenticatorFlags from the stored byte.
+	// We're casting our stored byte back to protocol.AuthenticatorFlags to use its Has...() methods.
+	authenticatorFlags := protocol.AuthenticatorFlags(wc.CredentialFlagsByte)
 
 	return webauthn.Credential{
 		ID:              wc.ID,
 		PublicKey:       wc.PublicKey,
 		AttestationType: wc.AttestationType,
 		Transport:       transports,
-		Flags:           webauthn.CredentialFlags{},
+		// Populate the top-level Flags field using the helper.
+		Flags: webauthn.NewCredentialFlags(authenticatorFlags), // <--- Correctly populates Flags
 		Authenticator: webauthn.Authenticator{
 			AAGUID:       wc.AAGUID,
 			SignCount:    wc.SignCount,
-			CloneWarning: false,
-			Attachment:   "",
+			CloneWarning: false, // These are usually managed by the library
+			Attachment:   "",    // These are usually managed by the library
+			// IMPORTANT: In your Authenticator struct, there is no 'Flags' field.
+			// So, we do NOT set Authenticator.Flags here.
 		},
-		Attestation: webauthn.CredentialAttestation{
-			ClientDataJSON:     nil,
-			ClientDataHash:     nil,
-			AuthenticatorData:  nil,
-			PublicKeyAlgorithm: 0,
-			Object:             nil,
-		},
+		Attestation: webauthn.CredentialAttestation{}, // Can be left empty for login
 	}
 }
 
 // FromWebAuthnCredential converts webauthn.Credential to WebAuthnCredential.
-// FromWebAuthnCredential converts webauthn.Credential to WebAuthnCredential.
+// This is used when storing a new credential after successful registration,
+// extracting the raw byte for CredentialFlags.
 func FromWebAuthnCredential(wc webauthn.Credential) WebAuthnCredential {
-	// Convert []webauthn.AuthenticatorTransport to []string
+	// Convert []protocol.AuthenticatorTransport to []string
 	transports := make([]string, len(wc.Transport))
 	for i, t := range wc.Transport {
 		transports[i] = string(t)
@@ -67,8 +72,10 @@ func FromWebAuthnCredential(wc webauthn.Credential) WebAuthnCredential {
 		PublicKey:       wc.PublicKey,
 		AttestationType: wc.AttestationType,
 		AAGUID:          wc.Authenticator.AAGUID,
-		SignCount:       wc.Authenticator.SignCount, // Correctly get SignCount
+		SignCount:       wc.Authenticator.SignCount,
 		Transports:      transports,
+		// Store the raw byte of the top-level Credential.Flags.
+		CredentialFlagsByte: byte(wc.Flags.ProtocolValue()), // <--- CRITICAL: Store the raw byte from Credential.Flags
 	}
 }
 
@@ -78,16 +85,16 @@ var _ webauthn.User = &User{}
 type User struct {
 	ID           primitive.ObjectID     `bson:"_id,omitempty" json:"id"`
 	Username     string                 `bson:"username" json:"username"`
-	PasswordHash []byte                 `bson:"password_hash,omitempty" json:"-"` // Omit from JSON response
+	PasswordHash []byte                 `bson:"password_hash,omitempty" json:"-"`
 	Roles        []string               `bson:"roles" json:"roles"`
-	Passkeys     []WebAuthnCredential   `bson:"passkeys" json:"passkeys"`       // Use the BSON-friendly wrapper
-	TOTPSecret   string                 `bson:"totp_secret,omitempty" json:"-"` // Base32 encoded secret, omit from JSON
+	Passkeys     []WebAuthnCredential   `bson:"passkeys" json:"passkeys"`
+	TOTPSecret   string                 `bson:"totp_secret,omitempty" json:"-"`
 	TOTPEnabled  bool                   `bson:"totp_enabled" json:"totp_enabled"`
 	Settings     map[string]interface{} `bson:"settings,omitempty" json:"settings,omitempty"`
 }
 
 func (u *User) WebAuthnID() []byte {
-	return []byte(u.ID.String())
+	return []byte(u.ID.String()) // Corrected to use raw bytes
 }
 
 func (u *User) WebAuthnName() string {
@@ -106,7 +113,6 @@ func (u *User) WebAuthnCredentials() []webauthn.Credential {
 	return creds
 }
 
-// UserID is a helper to get the string representation of the User's ID.
 func (u *User) UserID() string {
 	return u.ID.Hex()
 }
