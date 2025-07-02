@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+var SameSite = http.SameSiteNoneMode
+
 func GetSession(ctx context.Context) (*UserSessionData, error) {
 	v := ctx.Value(sessionKey)
 	if v == nil {
@@ -61,7 +63,7 @@ func SetSessionCookie(w http.ResponseWriter, u *UserSessionData, secret []byte) 
 		HttpOnly:    true,
 		Secure:      true,
 		Domain:      u.Domain,
-		SameSite:    http.SameSiteLaxMode,
+		SameSite:    SameSite,
 		Partitioned: true,
 	})
 	return nil
@@ -76,6 +78,6 @@ func ClearSessionCookie(w http.ResponseWriter) {
 		Expires:  time.Unix(0, 0), // Set to a past time to expire immediately
 		HttpOnly: true,
 		Secure:   true,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: SameSite,
 	})
 }
