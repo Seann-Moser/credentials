@@ -2,11 +2,15 @@ package session
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"github.com/Seann-Moser/credentials/oauth/oserver"
 	"github.com/Seann-Moser/credentials/utils"
 	"github.com/Seann-Moser/rbac"
+	"github.com/google/uuid"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -66,15 +70,30 @@ func (c *Client) Authenticate(w http.ResponseWriter, r *http.Request) (*UserSess
 			return u, reqCtx, nil
 		}
 	}
-	// Anonymous session
+
 	u = &UserSessionData{
-		UserID:    fmt.Sprintf("anon-%d", time.Now().UnixNano()),
+		UserID:    fmt.Sprintf("anon-%s", GenerateBase64Hash(time.Now(), uuid.New())),
 		SignedIn:  false,
 		ExpiresAt: time.Now().Add(c.ttl).Unix(),
 		Roles:     []string{"default"},
 		Domain:    utils.GetDomain(r),
 	}
-	_ = SetSessionCookie(w, u, c.secret)
+	if set, _ := strconv.ParseBool(r.URL.Query().Get("login")); !set {
+		// Anonymous session
+		_ = SetSessionCookie(w, u, c.secret)
+	}
 	reqCtx := u.WithContext(r.Context())
 	return u, reqCtx, nil
+}
+
+func GenerateBase64Hash(ts time.Time, id uuid.UUID) string {
+	// 1) Serialize the inputs. Using UnixNano gives you full precision.
+	//    Feel free to change the separator or format if you need something different.
+	input := fmt.Sprintf("%d:%s", ts.UnixNano(), id.String())
+
+	// 2) Compute SHA-256
+	sum := sha256.Sum256([]byte(input))
+
+	// 3) Return Base64 (URL‐safe, without padding)
+	return base64.RawURLEncoding.EncodeToString(sum[:])
 }

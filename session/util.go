@@ -13,6 +13,7 @@ import (
 )
 
 var SameSite = http.SameSiteNoneMode
+var UseDomain = false
 
 func GetSession(ctx context.Context) (*UserSessionData, error) {
 	v := ctx.Value(sessionKey)
@@ -55,17 +56,20 @@ func SetSessionCookie(w http.ResponseWriter, u *UserSessionData, secret []byte) 
 	if u.ExpiresAt > 0 {
 		expires = time.Unix(u.ExpiresAt, 0)
 	}
-	http.SetCookie(w, &http.Cookie{
+	c := &http.Cookie{
 		Name:        sessionCookieName,
 		Value:       cookieValue,
 		Path:        "/",
 		Expires:     expires,
-		HttpOnly:    true,
+		HttpOnly:    false,
 		Secure:      true,
-		Domain:      u.Domain,
 		SameSite:    SameSite,
 		Partitioned: true,
-	})
+	}
+	if UseDomain {
+		c.Domain = u.Domain
+	}
+	http.SetCookie(w, c)
 	return nil
 }
 
