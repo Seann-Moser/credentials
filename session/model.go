@@ -19,6 +19,7 @@ type UserSessionData struct {
 	SignedIn       bool     `json:"signed_in"`
 	ServiceAccount bool     `json:"service_account,omitempty"`
 	ExpiresAt      int64    `json:"expires_at"`
+	Domain         string   `json:"domain,omitempty"`
 }
 
 // WithContext attaches session data to context

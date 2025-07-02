@@ -258,8 +258,37 @@ func (s *Server) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	sessionData := &session.UserSessionData{
+		UserID:    user.UserID(),
+		Roles:     user.Roles,
+		SignedIn:  true,
+		ExpiresAt: time.Now().Add(time.Hour * 24 * 7).Unix(),
+		Domain:    getDomain(r),
+	}
+	if err := session.SetSessionCookie(w, sessionData, s.SessionSecret); err != nil {
+		log.Printf("Error setting session cookie after TOTP: %v", err)
+		writeError(w, http.StatusInternalServerError, "Failed to set session")
+		return
+	}
 	log.Printf("User registered: %s", user.Username)
 	writeJSON(w, http.StatusCreated, map[string]string{"message": "User registered successfully", "userId": user.UserID(), "username": user.Username})
+}
+
+func getDomain(r *http.Request) string {
+	l := strings.Split(getOrigin(r), ".")
+	if len(l) <= 2 {
+		return strings.Join(l, ".")
+	}
+	return l[len(l)-2] + "." + l[len(l)-1]
+}
+func getOrigin(r *http.Request) string {
+	if v := r.Header.Get("Origin"); v != "" {
+		return v
+	}
+	if v := r.Header.Get("Referer"); v != "" {
+		return v
+	}
+	return ""
 }
 
 // LoginRequest represents the request body for password login.
@@ -311,9 +340,11 @@ func (s *Server) LoginPasswordHandler(w http.ResponseWriter, r *http.Request) {
 
 	// If no TOTP, set session cookie
 	sessionData := &session.UserSessionData{
-		UserID:   user.UserID(),
-		Roles:    user.Roles,
-		SignedIn: true,
+		UserID:    user.UserID(),
+		Roles:     user.Roles,
+		SignedIn:  true,
+		ExpiresAt: time.Now().Add(time.Hour * 24 * 7).Unix(),
+		Domain:    getDomain(r),
 	}
 	if err := session.SetSessionCookie(w, sessionData, s.SessionSecret); err != nil {
 		log.Printf("Error setting session cookie: %v", err)
@@ -433,9 +464,11 @@ func (s *Server) LoginTOTPHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionData := &session.UserSessionData{
-		UserID:   user.UserID(),
-		Roles:    user.Roles,
-		SignedIn: true,
+		UserID:    user.UserID(),
+		Roles:     user.Roles,
+		SignedIn:  true,
+		ExpiresAt: time.Now().Add(time.Hour * 24 * 7).Unix(),
+		Domain:    getDomain(r),
 	}
 	if err := session.SetSessionCookie(w, sessionData, s.SessionSecret); err != nil {
 		log.Printf("Error setting session cookie after TOTP: %v", err)
@@ -765,9 +798,11 @@ func (s *Server) FinishPasskeyLoginHandler(w http.ResponseWriter, r *http.Reques
 
 	// Set session cookie
 	sessionData := &session.UserSessionData{
-		UserID:   user.UserID(),
-		Roles:    user.Roles,
-		SignedIn: true,
+		UserID:    user.UserID(),
+		Roles:     user.Roles,
+		SignedIn:  true,
+		ExpiresAt: time.Now().Add(time.Hour * 24 * 7).Unix(),
+		Domain:    getDomain(r),
 	}
 	if err := session.SetSessionCookie(w, sessionData, s.SessionSecret); err != nil {
 		log.Printf("Error setting session cookie: %v", err)

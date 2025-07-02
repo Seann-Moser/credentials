@@ -49,16 +49,20 @@ func SetSessionCookie(w http.ResponseWriter, u *UserSessionData, secret []byte) 
 	// Sign
 	sig := computeHMAC(value, secret)
 	cookieValue := fmt.Sprintf("%s|%s", value, sig)
-
-	expires := time.Unix(u.ExpiresAt, 0)
+	var expires time.Time
+	if u.ExpiresAt > 0 {
+		expires = time.Unix(u.ExpiresAt, 0)
+	}
 	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookieName,
-		Value:    cookieValue,
-		Path:     "/",
-		Expires:  expires,
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteLaxMode,
+		Name:        sessionCookieName,
+		Value:       cookieValue,
+		Path:        "/",
+		Expires:     expires,
+		HttpOnly:    true,
+		Secure:      true,
+		Domain:      u.Domain,
+		SameSite:    http.SameSiteLaxMode,
+		Partitioned: true,
 	})
 	return nil
 }
