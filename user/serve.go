@@ -275,12 +275,29 @@ func (s *Server) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func getDomain(r *http.Request) string {
-	l := strings.Split(getOrigin(r), ".")
-	if len(l) <= 2 {
-		return strings.Join(l, ".")
+	origin := getOrigin(r)
+	if origin == "" {
+		return ""
 	}
-	return l[len(l)-2] + "." + l[len(l)-1]
+	if !strings.HasPrefix(origin, "http") {
+		origin = "https://" + origin
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return ""
+	}
+	// u.Host is "dev.example.com:3000", but Hostname() drops the ":3000"
+	host := u.Hostname() // => "dev.example.com"
+	parts := strings.Split(host, ".")
+	if len(parts) <= 2 {
+		// covers "localhost" or "example.com"
+		return host
+	}
+	// take the last two labels: "example.com"
+	n := len(parts)
+	return parts[n-2] + "." + parts[n-1]
 }
+
 func getOrigin(r *http.Request) string {
 	if v := r.Header.Get("Origin"); v != "" {
 		return v

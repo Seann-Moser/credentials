@@ -49,7 +49,7 @@ func TestGetDomain(t *testing.T) {
 		{"two-label domain", "foo.bar", "", "foo.bar"},
 		{"one subdomain", "api.example.com", "", "example.com"},
 		{"deep subdomains", "a.b.c.example.co.uk", "", "co.uk"},
-		{"use Referer fallback", "", "sub.test.org/path", "test.org/path"},
+		{"use Referer fallback", "", "sub.test.org/path", "test.org"},
 	}
 
 	for _, tt := range tests {
