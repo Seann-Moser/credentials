@@ -17,9 +17,14 @@ import (
 	"github.com/pquerna/otp/totp" // For TOTP generation and validation
 	redis "github.com/redis/go-redis/v9"
 	"log/slog"
+	"os"
+	"path"
 	"regexp"
 	"strings"
 
+	"github.com/crazy3lf/colorconv"
+	"github.com/yeqown/go-qrcode/v2"
+	"github.com/yeqown/go-qrcode/writer/standard"
 	"golang.org/x/crypto/bcrypt"
 	"log"
 	"net/http"
@@ -907,14 +912,71 @@ func (s *Server) GenerateTOTPSecretHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Generate QR code URL (using Google Charts API for simplicity, but consider self-hosting or embedding base64 image)
-	qrURL := fmt.Sprintf("https://chart.googleapis.com/chart?chs=200x200&chld=M|0&cht=qr&chl=%s", url.QueryEscape(key.URL()))
-
-	log.Printf("TOTP secret generated for user %s. QR URL: %s", user.Username, qrURL)
+	log.Printf("TOTP secret generated for user %s. QR URL: %s", user.Username, key.URL())
 	writeJSON(w, http.StatusOK, GenerateTOTPResponse{
 		Secret:   key.Secret(), // Return the secret to the client (client shouldn't store it long-term)
-		ImageURL: qrURL,
+		ImageURL: key.URL(),
 	})
+}
+
+func (s *Server) QRCode(w http.ResponseWriter, r *http.Request) {
+	c, err := colorconv.HexToColor("#69676e")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid qrcode")
+		return
+	}
+	list := []standard.ImageOption{
+		standard.WithFgColor(c),
+		standard.WithLogoSizeMultiplier(2),
+		standard.WithQRWidth(24),
+		standard.WithBorderWidth(20),
+	}
+
+	// Parse the URL
+	parsedURL, err := url.Parse(r.URL.Query().Get("u"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid URL")
+		return
+	}
+	p := uuid.New().String() + ".png"
+	err = CreateQRCode(r.Context(), parsedURL.String(), p,
+		list...,
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to generate QRCode")
+		return
+	}
+	defer func() {
+		_ = os.Remove(p)
+	}()
+
+	http.ServeFile(w, r, p)
+}
+
+func CreateQRCode(ctx context.Context, qrUrl string, downloadPath string, imgOptions ...standard.ImageOption) error {
+	endpoint, err := url.Parse(qrUrl)
+	if err != nil {
+		return err
+	}
+	ep := endpoint.String()
+	qrCode, err := qrcode.NewWith(ep,
+		qrcode.WithEncodingMode(qrcode.EncModeByte),
+		qrcode.WithErrorCorrectionLevel(qrcode.ErrorCorrectionQuart),
+	)
+	if err != nil {
+		return err
+	}
+
+	w, err := standard.New(path.Base(downloadPath), imgOptions...)
+	if err != nil {
+		return fmt.Errorf("failled adding asset to qr: %w", err)
+	}
+	err = qrCode.Save(w)
+	if err != nil {
+		return fmt.Errorf("failled saving qr code: %w", err)
+	}
+
+	return nil
 }
 
 // VerifyTOTPRequest represents the request body for verifying a TOTP code.
