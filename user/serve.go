@@ -50,12 +50,11 @@ type Server struct {
 }
 
 // NewServer creates a new Server instance.
-func NewServer(store Store, rbac *rbac.Manager, sessionSecret []byte, rpID, rpDisplayName, rpOrigin string) (*Server, error) {
+func NewServer(store Store, rbac *rbac.Manager, sessionSecret []byte, rpID, rpDisplayName string, rpOrigin ...string) (*Server, error) {
 	wv, err := webauthn.New(&webauthn.Config{
 		RPDisplayName: rpDisplayName, // Display Name for your site
 		RPID:          rpID,          // The origin for your site
-		RPOrigins:     []string{rpOrigin},
-
+		RPOrigins:     rpOrigin,
 		// For development, allow http:
 		// AttestationPreference: "none", // Recommended for production
 		// Timeout:                60000,
