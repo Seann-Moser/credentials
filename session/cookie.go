@@ -15,6 +15,10 @@ func GetSessionFromCookie(r *http.Request, secret []byte) (*UserSessionData, err
 	if err != nil {
 		return nil, err
 	}
+	return decode(c, secret)
+}
+
+func decode(c *http.Cookie, secret []byte) (*UserSessionData, error) {
 	parts := strings.Split(c.Value, "|")
 	if len(parts) != 2 {
 		return nil, errors.New("invalid session cookie format")
@@ -37,3 +41,5 @@ func GetSessionFromCookie(r *http.Request, secret []byte) (*UserSessionData, err
 	}
 	return &u, nil
 }
+
+//""

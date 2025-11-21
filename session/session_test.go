@@ -2,11 +2,13 @@ package session
 
 import (
 	"context"
-	"github.com/Seann-Moser/credentials/oauth/oserver"
-	"github.com/Seann-Moser/rbac"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/Seann-Moser/credentials/oauth/oserver"
+	"github.com/Seann-Moser/rbac"
 )
 
 func TestHMAC(t *testing.T) {
@@ -125,4 +127,15 @@ func TestAuthenticate_OAuth(t *testing.T) {
 	//if len(u.Roles) != 2 {
 	//	t.Errorf("expected 2 roles, got %v", u.Roles)
 	//}
+}
+
+func TestUserSessionData_WithContext(t *testing.T) {
+	c := &http.Cookie{Value: "eyJ1c2VyX2lkIjoiNjkxZjljNDliYThlZGM1YTA1NGYxYjE0Iiwicm9sZXMiOlsidXNlciJdLCJzaWduZWRfaW4iOnRydWUsImV4cGlyZXNfYXQiOjE3NjQyODQxMjksImRvbWFpbiI6ImxvY2FsaG9zdCJ9|-kF7RkmbcKcFiNH94aBisEzRwLe2Gaz3yyT6D8kZdEQ="}
+
+	data, err := decode(c, []byte("default"))
+	if err != nil {
+		t.Errorf("failed decoding data: %s", err)
+		return
+	}
+	println(data.UserID)
 }
