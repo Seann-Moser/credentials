@@ -1,5 +1,7 @@
 github.com/Seann-Moser/rbac v1.0.10 h1:HwOpn2f/BS6fvAEpWrA4EfjceSCXRViE11TaBcRra9Y=
 github.com/Seann-Moser/rbac v1.0.10/go.mod h1:P+WDdCUWGCpIiy2gUB1uOO1qFgGi22Lqt+V33FfsiKQ=
+github.com/Seann-Moser/rbac v1.0.11 h1:BtgJxLaWGy5ZiCbcK6snYkw73KyLM2zEw0pnuTJ7XLk=
+github.com/Seann-Moser/rbac v1.0.11/go.mod h1:P+WDdCUWGCpIiy2gUB1uOO1qFgGi22Lqt+V33FfsiKQ=
 github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc/go.mod h1:paBWMcWSl3LHKBqUq+rly7CNSldXjb2rDl3JlRe0mD8=
 github.com/boombuler/barcode v1.1.0 h1:ChaYjBR63fr4LFyGn8E8nt7dBSt3MiU3zMOZqFvVkHo=
 github.com/boombuler/barcode v1.1.0/go.mod h1:paBWMcWSl3LHKBqUq+rly7CNSldXjb2rDl3JlRe0mD8=

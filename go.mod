@@ -3,7 +3,7 @@ module github.com/Seann-Moser/credentials
 go 1.24.4
 
 require (
-	github.com/Seann-Moser/rbac v1.0.10
+	github.com/Seann-Moser/rbac v1.0.11
 	github.com/crazy3lf/colorconv v1.2.0
 	github.com/go-webauthn/webauthn v0.15.0
 	github.com/google/uuid v1.6.0
