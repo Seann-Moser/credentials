@@ -70,7 +70,7 @@ func (s *Server) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if role != nil {
-		err = s.rbac.AssignRoleToUser(r.Context(), user.ID.String(), role.ID)
+		err = s.rbac.AssignRoleToUser(r.Context(), user.ID, role.ID)
 		if err != nil {
 			log.Printf("Error assigning role to user: %v", err)
 		}

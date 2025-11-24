@@ -5,9 +5,10 @@ import (
 	"crypto/hmac"
 	"errors"
 	"fmt"
+
 	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -54,12 +55,8 @@ func NewMongoDBStore(client *mongo.Client, dbName, usersCollectionName string) *
 
 // GetUserByID retrieves a user by their ID.
 func (m *MongoDBStore) GetUserByID(ctx context.Context, userID string) (*User, error) {
-	objID, err := primitive.ObjectIDFromHex(userID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid user ID format: %w", err)
-	}
 	var user User
-	err = m.usersCollection.FindOne(ctx, bson.M{"_id": objID}).Decode(&user)
+	err := m.usersCollection.FindOne(ctx, bson.M{"id": userID}).Decode(&user)
 	if err == mongo.ErrNoDocuments {
 		return nil, errors.New("user not found")
 	}
@@ -84,7 +81,7 @@ func (m *MongoDBStore) GetUserByUsername(ctx context.Context, username string) (
 
 // CreateUser creates a new user in the database.
 func (m *MongoDBStore) CreateUser(ctx context.Context, user *User) error {
-	user.ID = primitive.NewObjectID() // Generate new ObjectID for the user
+	user.ID = uuid.New().String() // Generate new ObjectID for the user
 	_, err := m.usersCollection.InsertOne(ctx, user)
 	if mongo.IsDuplicateKeyError(err) { // Check for duplicate key error
 		return errors.New("user with this username already exists")
@@ -97,7 +94,7 @@ func (m *MongoDBStore) CreateUser(ctx context.Context, user *User) error {
 
 // UpdateUser updates an existing user in the database.
 func (m *MongoDBStore) UpdateUser(ctx context.Context, user *User) error {
-	_, err := m.usersCollection.ReplaceOne(ctx, bson.M{"_id": user.ID}, user)
+	_, err := m.usersCollection.ReplaceOne(ctx, bson.M{"id": user.ID}, user)
 	if err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
 	}
@@ -106,11 +103,7 @@ func (m *MongoDBStore) UpdateUser(ctx context.Context, user *User) error {
 
 // DeleteUser deletes a user by their ID.
 func (m *MongoDBStore) DeleteUser(ctx context.Context, userID string) error {
-	objID, err := primitive.ObjectIDFromHex(userID)
-	if err != nil {
-		return fmt.Errorf("invalid user ID format: %w", err)
-	}
-	res, err := m.usersCollection.DeleteOne(ctx, bson.M{"_id": objID})
+	res, err := m.usersCollection.DeleteOne(ctx, bson.M{"id": userID})
 	if err != nil {
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
@@ -122,18 +115,13 @@ func (m *MongoDBStore) DeleteUser(ctx context.Context, userID string) error {
 
 // AddPasskey adds a new WebAuthn credential (passkey) to a user.
 func (m *MongoDBStore) AddPasskey(ctx context.Context, userID string, credential webauthn.Credential) error {
-	objID, err := primitive.ObjectIDFromHex(userID)
-	if err != nil {
-		return fmt.Errorf("invalid user ID format: %w", err)
-	}
-
 	wrappedCredential := FromWebAuthnCredential(credential)
 
 	// Add the new passkey to the user's Passkeys array
 	update := bson.M{
 		"$push": bson.M{"passkeys": wrappedCredential},
 	}
-	_, err = m.usersCollection.UpdateOne(ctx, bson.M{"_id": objID}, update)
+	_, err := m.usersCollection.UpdateOne(ctx, bson.M{"id": userID}, update)
 	if err != nil {
 		return fmt.Errorf("failed to add passkey: %w", err)
 	}
@@ -174,10 +162,6 @@ func (m *MongoDBStore) GetPasskeyByCredentialID(ctx context.Context, credentialI
 
 // UpdatePasskey updates an existing passkey's sign count.
 func (m *MongoDBStore) UpdatePasskey(ctx context.Context, userID string, credential webauthn.Credential) error {
-	objID, err := primitive.ObjectIDFromHex(userID)
-	if err != nil {
-		return fmt.Errorf("invalid user ID format: %w", err)
-	}
 
 	// Access the SignCount from the Authenticator field
 	signCount := credential.Authenticator.SignCount
@@ -195,7 +179,7 @@ func (m *MongoDBStore) UpdatePasskey(ctx context.Context, userID string, credent
 	}
 	opts := options.Update().SetArrayFilters(arrayFilters)
 
-	_, err = m.usersCollection.UpdateOne(ctx, bson.M{"_id": objID}, update, opts)
+	_, err := m.usersCollection.UpdateOne(ctx, bson.M{"id": userID}, update, opts)
 	if err != nil {
 		return fmt.Errorf("failed to update passkey: %w", err)
 	}
@@ -204,18 +188,13 @@ func (m *MongoDBStore) UpdatePasskey(ctx context.Context, userID string, credent
 
 // DeletePasskey removes a specific passkey from a user.
 func (m *MongoDBStore) DeletePasskey(ctx context.Context, userID string, credentialID []byte) error {
-	objID, err := primitive.ObjectIDFromHex(userID)
-	if err != nil {
-		return fmt.Errorf("invalid user ID format: %w", err)
-	}
-
 	// Remove the passkey from the user's Passkeys array
 	update := bson.M{
 		"$pull": bson.M{
 			"passkeys": bson.M{"id": credentialID},
 		},
 	}
-	_, err = m.usersCollection.UpdateOne(ctx, bson.M{"_id": objID}, update)
+	_, err := m.usersCollection.UpdateOne(ctx, bson.M{"id": userID}, update)
 	if err != nil {
 		return fmt.Errorf("failed to delete passkey: %w", err)
 	}

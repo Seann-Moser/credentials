@@ -3,7 +3,6 @@ package user
 import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // =============================================================================
@@ -83,7 +82,7 @@ var _ webauthn.User = &User{}
 
 // User represents a user account in the system.
 type User struct {
-	ID           primitive.ObjectID     `bson:"_id,omitempty" json:"id"`
+	ID           string                 `bson:"id,omitempty" json:"id"`
 	Username     string                 `bson:"username" json:"username"`
 	PasswordHash []byte                 `bson:"password_hash,omitempty" json:"-"`
 	Roles        []string               `bson:"roles" json:"roles"`
@@ -94,7 +93,7 @@ type User struct {
 }
 
 func (u *User) WebAuthnID() []byte {
-	return []byte(u.ID.String()) // Corrected to use raw bytes
+	return []byte(u.ID) // Corrected to use raw bytes
 }
 
 func (u *User) WebAuthnName() string {
@@ -114,5 +113,5 @@ func (u *User) WebAuthnCredentials() []webauthn.Credential {
 }
 
 func (u *User) UserID() string {
-	return u.ID.Hex()
+	return u.ID
 }
