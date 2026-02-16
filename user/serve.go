@@ -115,9 +115,9 @@ func (s *Server) AuthMiddleware(next http.Handler) http.Handler {
 
 		user, err := s.Store.GetUserByID(r.Context(), ses.UserID)
 		if err != nil {
-			log.Printf("User not found from session ID %s: %v", ses.UserID, err)
-			writeError(w, http.StatusUnauthorized, "User session invalid or user not found")
-			session.ClearSessionCookie(w) // Clear potentially stale cookie
+			log.Printf("Authentication failed: %v", err)
+			session.ClearSessionCookie(w)
+			next.ServeHTTP(w, r)
 			return
 		}
 
