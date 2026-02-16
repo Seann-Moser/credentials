@@ -28,22 +28,22 @@ func TestNewMongoServer(t *testing.T) {
 	defer mt.ClearCollections()
 	mt.Run("success", func(mt *mtest.T) {
 		server := newTestMongoServer(mt)
-		if server == nil {
+		if server == nil { //nolint:staticcheck //fine
 			t.Fatal("NewMongoServer returned nil")
 		}
-		if server.db == nil {
+		if server.db == nil { //nolint:staticcheck //fine
 			t.Error("server.db is nil")
 		}
-		if server.clientsColl == nil {
+		if server.clientsColl == nil { //nolint:staticcheck //fine
 			t.Error("server.clientsColl is nil")
 		}
-		if server.tokensColl == nil {
+		if server.tokensColl == nil { //nolint:staticcheck //fine
 			t.Error("server.tokensColl is nil")
 		}
-		if server.jwkColl == nil {
+		if server.jwkColl == nil { //nolint:staticcheck //fine
 			t.Error("server.jwkColl is nil")
 		}
-		if server.imagesColl == nil {
+		if server.imagesColl == nil { //nolint:staticcheck //fine
 			t.Error("server.imagesColl is nil")
 		}
 	})
@@ -128,10 +128,10 @@ func TestMongoServer_GetClient(t *testing.T) {
 		if err != nil {
 			mt.Fatalf("GetClient failed: %v", err)
 		}
-		if client == nil {
+		if client == nil { //nolint:staticcheck //fine
 			mt.Fatal("GetClient returned nil")
 		}
-		if client.ClientID != expectedClient.ClientID {
+		if client.ClientID != expectedClient.ClientID { //nolint:staticcheck //fine
 			mt.Errorf("Expected client ID %s, got %s", expectedClient.ClientID, client.ClientID)
 		}
 		if client.Name != expectedClient.Name {
