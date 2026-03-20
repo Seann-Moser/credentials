@@ -39,7 +39,9 @@ func NewMySQLStore(ctx context.Context, db *sql.DB) (*MySQLStore, error) {
 func (s *MySQLStore) ensureSchema(ctx context.Context) error {
 	// MySQL requires separate ExecContext calls per statement.
 	stmts := []string{
-		`CREATE TABLE IF NOT EXISTS users (
+		`CREATE SCHEMA IF NOT EXISTS users;`,
+		`
+CREATE TABLE IF NOT EXISTS users.users (
 			id            VARCHAR(36)     NOT NULL PRIMARY KEY,
 			username      VARCHAR(255)    NOT NULL UNIQUE,
 			password_hash BLOB,
@@ -53,7 +55,7 @@ func (s *MySQLStore) ensureSchema(ctx context.Context) error {
 		// MySQL's index key length limit (767 bytes for utf8mb4).
 		// The secondary index is declared inline because MySQL does not support
 		// CREATE INDEX IF NOT EXISTS.
-		`CREATE TABLE IF NOT EXISTS passkeys (
+		`CREATE TABLE IF NOT EXISTS users.passkeys (
 			user_id               VARCHAR(36)      NOT NULL,
 			credential_id         VARBINARY(1024)  NOT NULL,
 			public_key            BLOB             NOT NULL,
@@ -85,7 +87,7 @@ func (s *MySQLStore) ensureSchema(ctx context.Context) error {
 func (s *MySQLStore) GetUserByID(ctx context.Context, userID string) (*User, error) {
 	u, err := s.scanUser(ctx,
 		`SELECT id, username, password_hash, roles, totp_secret, totp_enabled, settings
-		 FROM users WHERE id = ?`, userID)
+		 FROM users.users WHERE id = ?`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +101,7 @@ func (s *MySQLStore) GetUserByID(ctx context.Context, userID string) (*User, err
 func (s *MySQLStore) GetUserByUsername(ctx context.Context, username string) (*User, error) {
 	u, err := s.scanUser(ctx,
 		`SELECT id, username, password_hash, roles, totp_secret, totp_enabled, settings
-		 FROM users WHERE username = ?`, username)
+		 FROM users.users WHERE username = ?`, username)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +125,7 @@ func (s *MySQLStore) CreateUser(ctx context.Context, user *User) error {
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO users (id, username, password_hash, roles, totp_secret, totp_enabled, settings)
+		INSERT INTO users.users (id, username, password_hash, roles, totp_secret, totp_enabled, settings)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		user.ID,
 		user.Username,
@@ -155,7 +157,7 @@ func (s *MySQLStore) UpdateUser(ctx context.Context, user *User) error {
 	}
 
 	res, err := s.db.ExecContext(ctx, `
-		UPDATE users
+		UPDATE users.users
 		SET username      = ?,
 		    password_hash = ?,
 		    roles         = ?,
@@ -186,7 +188,7 @@ func (s *MySQLStore) UpdateUser(ctx context.Context, user *User) error {
 
 // DeleteUser removes a user and all their passkeys (via ON DELETE CASCADE).
 func (s *MySQLStore) DeleteUser(ctx context.Context, userID string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, userID)
+	res, err := s.db.ExecContext(ctx, `DELETE FROM users.users WHERE id = ?`, userID)
 	if err != nil {
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
@@ -214,7 +216,7 @@ func (s *MySQLStore) AddPasskey(ctx context.Context, userID string, credential w
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO passkeys
+		INSERT INTO users.passkeys
 			(user_id, credential_id, public_key, attestation_type, aaguid,
 			 sign_count, transports, credential_flags_byte)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -238,7 +240,7 @@ func (s *MySQLStore) GetPasskeysByUserID(ctx context.Context, userID string) ([]
 	wcs, err := s.queryPasskeys(ctx,
 		`SELECT credential_id, public_key, attestation_type, aaguid,
 		        sign_count, transports, credential_flags_byte
-		 FROM passkeys WHERE user_id = ?`, userID)
+		 FROM users.passkeys WHERE user_id = ?`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get passkeys: %w", err)
 	}
@@ -257,7 +259,7 @@ func (s *MySQLStore) GetPasskeyByCredentialID(ctx context.Context, credentialID 
 	wcs, err := s.queryPasskeys(ctx,
 		`SELECT credential_id, public_key, attestation_type, aaguid,
 		        sign_count, transports, credential_flags_byte
-		 FROM passkeys WHERE credential_id = ?`, credentialID)
+		 FROM users.passkeys WHERE credential_id = ?`, credentialID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get passkey by credential ID: %w", err)
 	}
@@ -280,7 +282,7 @@ func (s *MySQLStore) GetPasskeyByCredentialID(ctx context.Context, credentialID 
 	// 3. Resolve the owning user ID.
 	var userID string
 	err = s.db.QueryRowContext(ctx,
-		`SELECT user_id FROM passkeys WHERE credential_id = ?`, credentialID).
+		`SELECT user_id FROM users.passkeys WHERE credential_id = ?`, credentialID).
 		Scan(&userID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, errors.New("passkey not found")
@@ -302,7 +304,7 @@ func (s *MySQLStore) GetPasskeyByCredentialID(ctx context.Context, credentialID 
 // UpdatePasskey updates the sign count for a specific credential.
 func (s *MySQLStore) UpdatePasskey(ctx context.Context, userID string, credential webauthn.Credential) error {
 	res, err := s.db.ExecContext(ctx, `
-		UPDATE passkeys SET sign_count = ?
+		UPDATE users.passkeys SET sign_count = ?
 		WHERE user_id = ? AND credential_id = ?`,
 		credential.Authenticator.SignCount,
 		userID,
@@ -324,7 +326,7 @@ func (s *MySQLStore) UpdatePasskey(ctx context.Context, userID string, credentia
 // DeletePasskey removes a specific passkey from a user.
 func (s *MySQLStore) DeletePasskey(ctx context.Context, userID string, credentialID []byte) error {
 	_, err := s.db.ExecContext(ctx,
-		`DELETE FROM passkeys WHERE user_id = ? AND credential_id = ?`,
+		`DELETE FROM users.passkeys WHERE user_id = ? AND credential_id = ?`,
 		userID, credentialID)
 	if err != nil {
 		return fmt.Errorf("failed to delete passkey: %w", err)
@@ -381,7 +383,7 @@ func (s *MySQLStore) loadPasskeys(ctx context.Context, u *User) error {
 	wcs, err := s.queryPasskeys(ctx,
 		`SELECT credential_id, public_key, attestation_type, aaguid,
 		        sign_count, transports, credential_flags_byte
-		 FROM passkeys WHERE user_id = ?`, u.ID)
+		 FROM users.passkeys WHERE user_id = ?`, u.ID)
 	if err != nil {
 		return err
 	}

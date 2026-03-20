@@ -37,7 +37,8 @@ func NewMySQLServer(ctx context.Context, db *sql.DB) (*MySQLServer, error) {
 
 func (s *MySQLServer) ensureSchema(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `
-	CREATE TABLE IF NOT EXISTS oauth_clients (
+	CREATE SCHEMA IF NOT EXISTS oserver;
+	CREATE TABLE IF NOT EXISTS oserver.oauth_clients (
 		client_id VARCHAR(36) PRIMARY KEY,
 		account_id TEXT NOT NULL,
 		client_secret TEXT NOT NULL,
@@ -50,7 +51,7 @@ func (s *MySQLServer) ensureSchema(ctx context.Context) error {
 		token_endpoint_auth_method TEXT
 	);
 
-	CREATE TABLE IF NOT EXISTS oauth_tokens (
+	CREATE TABLE IF NOT EXISTS oserver.oauth_tokens (
 		id BIGINT AUTO_INCREMENT PRIMARY KEY,
 		code TEXT UNIQUE,
 		access_token TEXT UNIQUE,
@@ -67,12 +68,12 @@ func (s *MySQLServer) ensureSchema(ctx context.Context) error {
 		created_at BIGINT
 	);
 
-	CREATE TABLE IF NOT EXISTS oauth_jwks (
+	CREATE TABLE IF NOT EXISTS oserver.oauth_jwks (
 		id BIGINT AUTO_INCREMENT PRIMARY KEY,
 		key_data JSON NOT NULL
 	);
 
-	CREATE TABLE IF NOT EXISTS oauth_client_images (
+	CREATE TABLE IF NOT EXISTS oserver.oauth_client_images (
 		client_id VARCHAR(36) PRIMARY KEY,
 		data LONGBLOB NOT NULL,
 		content_type TEXT,
@@ -122,7 +123,7 @@ func (s *MySQLServer) RegisterClient(ctx context.Context, client *OAuthClient) (
 	respTypes, _ := json.Marshal(client.ResponseTypes)
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO oauth_clients
+		INSERT INTO oserver.oauth_clients
 		(client_id, account_id, client_secret, name, image_url,
 		 redirect_uris, scopes, grant_types, response_types, token_endpoint_auth_method)
 		VALUES (?,?,?,?,?,?,?,?,?,?)`,
@@ -144,7 +145,7 @@ func (s *MySQLServer) GetClient(ctx context.Context, clientID string) (*OAuthCli
 	row := s.db.QueryRowContext(ctx, `
 		SELECT client_id, account_id, client_secret, name, image_url,
 		       redirect_uris, scopes, grant_types, response_types, token_endpoint_auth_method
-		FROM oauth_clients WHERE client_id = ?`, clientID)
+		FROM oserver.oauth_clients WHERE client_id = ?`, clientID)
 
 	var (
 		c         OAuthClient
@@ -182,11 +183,11 @@ func (s *MySQLServer) ListClients(ctx context.Context, accountID string) ([]*OAu
 	if accountID != "" {
 		rows, err = s.db.QueryContext(ctx, `
 			SELECT client_id, account_id, name, redirect_uris, scopes, grant_types, response_types
-			FROM oauth_clients WHERE account_id = ?`, accountID)
+			FROM oserver.oauth_clients WHERE account_id = ?`, accountID)
 	} else {
 		rows, err = s.db.QueryContext(ctx, `
 			SELECT client_id, account_id, name, redirect_uris, scopes, grant_types, response_types
-			FROM oauth_clients`)
+			FROM oserver.oauth_clients`)
 	}
 	if err != nil {
 		return nil, err
@@ -227,7 +228,7 @@ func (s *MySQLServer) UpdateClient(ctx context.Context, client *OAuthClient) (*O
 	respTypes, _ := json.Marshal(client.ResponseTypes)
 
 	_, err := s.db.ExecContext(ctx, `
-		UPDATE oauth_clients SET
+		UPDATE oserver.oauth_clients SET
 			name=?, image_url=?, redirect_uris=?, scopes=?, grant_types=?, response_types=?, token_endpoint_auth_method=?
 		WHERE client_id=?`,
 		client.Name,
@@ -243,7 +244,7 @@ func (s *MySQLServer) UpdateClient(ctx context.Context, client *OAuthClient) (*O
 }
 
 func (s *MySQLServer) DeleteClient(ctx context.Context, clientID string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM oauth_clients WHERE client_id = ?`, clientID)
+	res, err := s.db.ExecContext(ctx, `DELETE FROM oserver.oauth_clients WHERE client_id = ?`, clientID)
 	if err != nil {
 		return err
 	}
@@ -289,7 +290,7 @@ func (s *MySQLServer) Authorize(ctx context.Context, req AuthRequest) (*AuthResp
 	code := uuid.New().String()
 
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO oauth_tokens
+		INSERT INTO oserver.oauth_tokens
 		(code, client_id, user_id, account_id, redirect_uri, scope,
 		 code_challenge, code_challenge_method, grant_type, created_at)
 		VALUES (?,?,?,?,?,?,?,?,?,?)`,
@@ -337,7 +338,7 @@ func (s *MySQLServer) tokenFromCode(ctx context.Context, req TokenRequest, now t
 
 	err := s.db.QueryRowContext(ctx, `
 		SELECT client_id, redirect_uri, scope, code_challenge, code_challenge_method
-		FROM oauth_tokens WHERE code = ?`, req.Code).
+		FROM oserver.oauth_tokens WHERE code = ?`, req.Code).
 		Scan(&clientID, &redirectURI, &scope, &codeChallenge, &codeChallengeMethod)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -371,7 +372,7 @@ func (s *MySQLServer) tokenFromCode(ctx context.Context, req TokenRequest, now t
 	expiresAt := now.Add(time.Hour).Unix()
 
 	_, err = s.db.ExecContext(ctx, `
-		UPDATE oauth_tokens
+		UPDATE oserver.oauth_tokens
 		SET access_token=?, refresh_token=?, expires_at=?
 		WHERE code=?`,
 		accessToken, refreshToken, expiresAt, req.Code,
@@ -396,7 +397,7 @@ func (s *MySQLServer) tokenFromRefresh(ctx context.Context, req TokenRequest, no
 	)
 
 	err := s.db.QueryRowContext(ctx,
-		`SELECT client_id, scope FROM oauth_tokens WHERE refresh_token = ?`, req.RefreshToken).
+		`SELECT client_id, scope FROM oserver.oauth_tokens WHERE refresh_token = ?`, req.RefreshToken).
 		Scan(&clientID, &scope)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -410,7 +411,7 @@ func (s *MySQLServer) tokenFromRefresh(ctx context.Context, req TokenRequest, no
 	expiresAt := now.Add(time.Hour).Unix()
 
 	_, err = s.db.ExecContext(ctx,
-		`UPDATE oauth_tokens SET access_token=?, expires_at=? WHERE refresh_token=?`,
+		`UPDATE oserver.oauth_tokens SET access_token=?, expires_at=? WHERE refresh_token=?`,
 		accessToken, expiresAt, req.RefreshToken,
 	)
 	if err != nil {
@@ -437,7 +438,7 @@ func (s *MySQLServer) tokenFromClientCredentials(ctx context.Context, req TokenR
 
 	err := s.db.QueryRowContext(ctx, `
 		SELECT client_secret, scopes, grant_types
-		FROM oauth_clients WHERE client_id = ?`, req.ClientID).
+		FROM oserver.oauth_clients WHERE client_id = ?`, req.ClientID).
 		Scan(&clientSecret, &scopesJSON, &grantsJSON)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -470,7 +471,7 @@ func (s *MySQLServer) tokenFromClientCredentials(ctx context.Context, req TokenR
 	scopeStr := strings.Join(scopes, " ")
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO oauth_tokens
+		INSERT INTO oserver.oauth_tokens
 		(access_token, client_id, scope, grant_type, expires_at, created_at)
 		VALUES (?,?,?,?,?,?)`,
 		accessToken, req.ClientID, scopeStr, "client_credentials", expiresAt, now.Unix(),
@@ -505,7 +506,7 @@ func (s *MySQLServer) Introspect(ctx context.Context, req IntrospectRequest) (*I
 
 	err := s.db.QueryRowContext(ctx, `
 		SELECT client_id, user_id, account_id, scope, expires_at
-		FROM oauth_tokens WHERE access_token = ?`, req.Token).
+		FROM oserver.oauth_tokens WHERE access_token = ?`, req.Token).
 		Scan(&clientID, &userID, &accountID, &scope, &expiresAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -526,7 +527,7 @@ func (s *MySQLServer) Introspect(ctx context.Context, req IntrospectRequest) (*I
 }
 
 func (s *MySQLServer) JWKs(ctx context.Context) (*JWKSet, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT key_data FROM oauth_jwks`)
+	rows, err := s.db.QueryContext(ctx, `SELECT key_data FROM oserver.oauth_jwks`)
 	if err != nil {
 		return nil, err
 	}
@@ -561,7 +562,7 @@ func (s *MySQLServer) SetClientImage(r *http.Request, clientID string) error {
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO oauth_client_images (client_id, data, content_type)
+		INSERT INTO oserver.oauth_client_images (client_id, data, content_type)
 		VALUES (?,?,?)
 		ON DUPLICATE KEY UPDATE
 			data=VALUES(data),
@@ -579,7 +580,7 @@ func (s *MySQLServer) SendClientImage(w http.ResponseWriter, r *http.Request, cl
 	var contentType string
 
 	err := s.db.QueryRowContext(ctx,
-		`SELECT data, content_type FROM oauth_client_images WHERE client_id = ?`, clientID).
+		`SELECT data, content_type FROM oserver.oauth_client_images WHERE client_id = ?`, clientID).
 		Scan(&data, &contentType)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -619,7 +620,7 @@ func (s *MySQLServer) HasAccess(
 
 	err := s.db.QueryRowContext(ctx, `
 		SELECT user_id, account_id, scope, expires_at
-		FROM oauth_tokens WHERE access_token = ?`, token).
+		FROM oserver.oauth_tokens WHERE access_token = ?`, token).
 		Scan(&userID, &accountID, &scope, &expiresAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
