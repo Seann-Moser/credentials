@@ -36,51 +36,59 @@ func NewMySQLServer(ctx context.Context, db *sql.DB) (*MySQLServer, error) {
 // --------------------------------------------------------------------------
 
 func (s *MySQLServer) ensureSchema(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `
-	CREATE SCHEMA IF NOT EXISTS oserver;
-	CREATE TABLE IF NOT EXISTS oserver.oauth_clients (
-		client_id VARCHAR(36) PRIMARY KEY,
-		account_id TEXT NOT NULL,
-		client_secret TEXT NOT NULL,
-		name TEXT NOT NULL,
-		image_url TEXT,
-		redirect_uris JSON NOT NULL,
-		scopes JSON NOT NULL,
-		grant_types JSON NOT NULL,
-		response_types JSON NOT NULL,
-		token_endpoint_auth_method TEXT
-	);
+	queries := []string{
+		`CREATE DATABASE IF NOT EXISTS oserver`,
 
-	CREATE TABLE IF NOT EXISTS oserver.oauth_tokens (
-		id BIGINT AUTO_INCREMENT PRIMARY KEY,
-		code TEXT UNIQUE,
-		access_token TEXT UNIQUE,
-		refresh_token TEXT UNIQUE,
-		client_id VARCHAR(36) NOT NULL,
-		user_id TEXT,
-		account_id TEXT,
-		redirect_uri TEXT,
-		scope TEXT,
-		grant_type TEXT,
-		code_challenge TEXT,
-		code_challenge_method TEXT,
-		expires_at BIGINT,
-		created_at BIGINT
-	);
+		`CREATE TABLE IF NOT EXISTS oserver.oauth_clients (
+			client_id VARCHAR(36) PRIMARY KEY,
+			account_id TEXT NOT NULL,
+			client_secret TEXT NOT NULL,
+			name TEXT NOT NULL,
+			image_url TEXT,
+			redirect_uris JSON NOT NULL,
+			scopes JSON NOT NULL,
+			grant_types JSON NOT NULL,
+			response_types JSON NOT NULL,
+			token_endpoint_auth_method TEXT
+		)`,
 
-	CREATE TABLE IF NOT EXISTS oserver.oauth_jwks (
-		id BIGINT AUTO_INCREMENT PRIMARY KEY,
-		key_data JSON NOT NULL
-	);
+		`CREATE TABLE IF NOT EXISTS oserver.oauth_tokens (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			code TEXT UNIQUE,
+			access_token TEXT UNIQUE,
+			refresh_token TEXT UNIQUE,
+			client_id VARCHAR(36) NOT NULL,
+			user_id TEXT,
+			account_id TEXT,
+			redirect_uri TEXT,
+			scope TEXT,
+			grant_type TEXT,
+			code_challenge TEXT,
+			code_challenge_method TEXT,
+			expires_at BIGINT,
+			created_at BIGINT
+		)`,
 
-	CREATE TABLE IF NOT EXISTS oserver.oauth_client_images (
-		client_id VARCHAR(36) PRIMARY KEY,
-		data LONGBLOB NOT NULL,
-		content_type TEXT,
-		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-	);
-	`)
-	return err
+		`CREATE TABLE IF NOT EXISTS oserver.oauth_jwks (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			key_data JSON NOT NULL
+		)`,
+
+		`CREATE TABLE IF NOT EXISTS oserver.oauth_client_images (
+			client_id VARCHAR(36) PRIMARY KEY,
+			data LONGBLOB NOT NULL,
+			content_type TEXT,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+		)`,
+	}
+
+	for _, q := range queries {
+		if _, err := s.db.ExecContext(ctx, q); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // --------------------------------------------------------------------------

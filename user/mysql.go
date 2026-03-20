@@ -37,46 +37,49 @@ func NewMySQLStore(ctx context.Context, db *sql.DB) (*MySQLStore, error) {
 // -----------------------------------------------------------------------------
 
 func (s *MySQLStore) ensureSchema(ctx context.Context) error {
-	// MySQL requires separate ExecContext calls per statement.
+	// Start a transaction to ensure atomicity
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	// Defer a rollback. If Commit() is called, this does nothing.
+	defer tx.Rollback()
+
 	stmts := []string{
 		`CREATE SCHEMA IF NOT EXISTS users;`,
-		`
-CREATE TABLE IF NOT EXISTS users.users (
-			id            VARCHAR(36)     NOT NULL PRIMARY KEY,
-			username      VARCHAR(255)    NOT NULL UNIQUE,
-			password_hash BLOB,
-			roles         JSON            NOT NULL,
-			totp_secret   VARCHAR(512)    NOT NULL DEFAULT '',
-			totp_enabled  TINYINT(1)      NOT NULL DEFAULT 0,
-			settings      JSON
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS users.users (
+            id            VARCHAR(36)     NOT NULL PRIMARY KEY,
+            username      VARCHAR(255)    NOT NULL UNIQUE,
+            password_hash BLOB,
+            roles         JSON            NOT NULL,
+            totp_secret   VARCHAR(512)    NOT NULL DEFAULT '',
+            totp_enabled  TINYINT(1)      NOT NULL DEFAULT 0,
+            settings      JSON
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
-		// credential_id is arbitrary-length bytes; prefix the key to satisfy
-		// MySQL's index key length limit (767 bytes for utf8mb4).
-		// The secondary index is declared inline because MySQL does not support
-		// CREATE INDEX IF NOT EXISTS.
 		`CREATE TABLE IF NOT EXISTS users.passkeys (
-			user_id               VARCHAR(36)      NOT NULL,
-			credential_id         VARBINARY(1024)  NOT NULL,
-			public_key            BLOB             NOT NULL,
-			attestation_type      VARCHAR(64)      NOT NULL DEFAULT '',
-			aaguid                VARBINARY(16)    NOT NULL,
-			sign_count            BIGINT UNSIGNED  NOT NULL DEFAULT 0,
-			transports            JSON             NOT NULL,
-			credential_flags_byte TINYINT UNSIGNED NOT NULL DEFAULT 0,
-			PRIMARY KEY (user_id, credential_id(255)),
-			INDEX idx_passkeys_credential_id (credential_id(255)),
-			CONSTRAINT fk_passkeys_user FOREIGN KEY (user_id)
-				REFERENCES users(id) ON DELETE CASCADE
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+            user_id               VARCHAR(36)      NOT NULL,
+            credential_id         VARBINARY(1024)  NOT NULL,
+            public_key            BLOB             NOT NULL,
+            attestation_type      VARCHAR(64)      NOT NULL DEFAULT '',
+            aaguid                VARBINARY(16)    NOT NULL,
+            sign_count            BIGINT UNSIGNED  NOT NULL DEFAULT 0,
+            transports            JSON             NOT NULL,
+            credential_flags_byte TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, credential_id(255)),
+            INDEX idx_passkeys_credential_id (credential_id(255)),
+            CONSTRAINT fk_passkeys_user FOREIGN KEY (user_id)
+                REFERENCES users.users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 	}
 
 	for _, stmt := range stmts {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
-			return err
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("failed running statement %s", stmt)
 		}
 	}
-	return nil
+
+	return tx.Commit()
 }
 
 // -----------------------------------------------------------------------------
