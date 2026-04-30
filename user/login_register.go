@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Seann-Moser/credentials/session"
-	"github.com/Seann-Moser/credentials/utils"
-	"github.com/Seann-Moser/rbac"
+	"github.com/DarlingGoose/credentials/session"
+	"github.com/DarlingGoose/credentials/utils"
+	"github.com/DarlingGoose/rbac"
 	"golang.org/x/crypto/bcrypt"
 )
 

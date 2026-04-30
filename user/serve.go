@@ -15,9 +15,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Seann-Moser/credentials/session"
-	"github.com/Seann-Moser/credentials/utils"
-	"github.com/Seann-Moser/rbac"
+	"github.com/DarlingGoose/credentials/session"
+	"github.com/DarlingGoose/credentials/utils"
+	"github.com/DarlingGoose/rbac"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/google/uuid"
 	"github.com/pquerna/otp/totp" // For TOTP generation and validation

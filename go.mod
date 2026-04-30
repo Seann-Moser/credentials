@@ -1,9 +1,9 @@
-module github.com/Seann-Moser/credentials
+module github.com/DarlingGoose/credentials
 
 go 1.25.0
 
 require (
-	github.com/Seann-Moser/rbac v1.0.17
+	github.com/DarlingGoose/rbac v1.0.19
 	github.com/crazy3lf/colorconv v1.2.0
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/go-webauthn/webauthn v0.16.1

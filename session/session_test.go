@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Seann-Moser/credentials/oauth/oserver"
-	"github.com/Seann-Moser/rbac"
+	"github.com/DarlingGoose/credentials/oauth/oserver"
+	"github.com/DarlingGoose/rbac"
 )
 
 func TestHMAC(t *testing.T) {
